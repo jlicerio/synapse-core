@@ -58,9 +58,9 @@
             max-width: 1100px;
             height: 80%;
             max-height: 700px;
-            background: rgba(0, 0, 0, 0.7);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
             border: 1px solid var(--border);
             border-radius: 2px;
             padding: 40px;
@@ -69,7 +69,7 @@
             justify-content: center;
             opacity: 0;
             transform: translateY(20px);
-            transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+            transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1);
             pointer-events: none;
         }
 
@@ -95,7 +95,7 @@
 
         h2 {
             font-size: clamp(1.2rem, 5vw, 2rem);
-            color: var(--text-dim);
+            color: #fff;
             border-left: 2px solid white;
             padding-left: 20px;
         }
@@ -175,7 +175,7 @@
             top: 0;
             left: 0;
             width: 0%;
-            height: 2px;
+            height: 3px;
             background: #fff;
             transition: width 0.4s;
             z-index: 1000;
@@ -202,6 +202,10 @@
                 height: 85%;
             }
 
+            .slide h1 {
+                font-size: 2.5rem;
+            }
+
             .footer {
                 flex-direction: column;
                 align-items: center;
@@ -213,10 +217,6 @@
                 bottom: 60px;
             }
         }
-
-        .hidden {
-            display: none;
-        }
     </style>
 </head>
 
@@ -226,78 +226,82 @@
     <div id="p5-canvas"></div>
 
     <div class="presentation-container" id="presentation">
-        <!-- Slide 1: Title -->
-        <div class="slide active" id="slide-1">
+        <!-- Slide 0: Title -->
+        <div class="slide active">
             <p style="font-family: 'Orbitron'; letter-spacing: 8px; margin-bottom: 5px; color: #fff;">00 // SYSTEM_START
             </p>
             <h1>SYNAPSE<br>CORE™</h1>
             <p>RECRIG: ADAPTIVE EXECUTION ENGINE</p>
         </div>
 
-        <!-- Slide 2: The Synaptic Cluster -->
-        <div class="slide" id="slide-2">
+        <!-- Slide 1: The Synaptic Cluster -->
+        <div class="slide">
             <h2>Synaptic Cluster</h2>
             <p>Proprietary 8-Node intelligence framework.</p>
             <ul>
-                <li><span class="highlight">Decentralized Voting:</span> Logic competes for execution priority.</li>
-                <li><span class="highlight">Hebbian Feedback:</span> Machine-level learning on every bar.</li>
-                <li><span class="highlight">Cluster Architecture:</span> Fault-tolerant consensus protocol.</li>
-            </ul>
-        </div>
-
-        <!-- Slide 3: Connection Strength -->
-        <div class="slide" id="slide-3">
-            <h2>Connection Strength</h2>
-            <p>Dynamic trust allocation based on real-time efficacy.</p>
-            <ul>
-                <li><span class="highlight">Plasticity:</span> Nodes strengthen with success, attenuate on decay.</li>
-                <li><span class="highlight">Continuous Audit:</span> Sub-second performance monitoring.</li>
-                <li><span class="highlight">Self-Optimization:</span> Zero human parameter input required for scaling.
+                <li><span class="highlight">Decentralized Voting:</span> 8 specialized logic nodes compete for priority.
                 </li>
+                <li><span class="highlight">Hebbian Feedback:</span> Weightings adjust on a bar-by-bar basis.</li>
+                <li><span class="highlight">Consensus Alignment:</span> Only triggers when nodes reach critical
+                    resonance.</li>
             </ul>
         </div>
 
-        <!-- Slide 4: Axon-Link -->
-        <div class="slide" id="slide-4">
+        <!-- Slide 2: Connection Strength -->
+        <div class="slide">
+            <h2>Connection Strength</h2>
+            <p>Dynamic trust allocation based on real-time performance.</p>
+            <ul>
+                <li><span class="highlight">Plasticity:</span> Nodes strengthen with successful signals.</li>
+                <li><span class="highlight">Bayesian Priors:</span> Strategic bias adapts to market shifts instantly.
+                </li>
+                <li><span class="highlight">Self-Optimization:</span> The system silences underperforming inputs
+                    automatically.</li>
+            </ul>
+        </div>
+
+        <!-- Slide 3: Axon-Link -->
+        <div class="slide">
             <h2>Axon-Link v3.0</h2>
             <p>High-fidelity data backbone for sub-microsecond synchronization.</p>
             <ul>
-                <li><span class="highlight">Signal Multiplexing:</span> 12+ metrics packed into a single binary stream.
+                <li><span class="highlight">Signal Multiplexing:</span> Complex metrics packed into a single binary
+                    stream.</li>
+                <li><span class="highlight">Zero Latency:</span> Strategic decisions transmit at hardware-level speed.
                 </li>
-                <li><span class="highlight">Direct Drive:</span> Zero-latency link from strategy logic to order block.
-                </li>
-                <li><span class="highlight">Encryption:</span> Proprietary data-bus security.</li>
+                <li><span class="highlight">Proprietary Format:</span> Secure, closed-loop communications protocol.</li>
             </ul>
         </div>
 
-        <!-- Slide 5: Refractory Periods -->
-        <div class="slide" id="slide-5">
+        <!-- Slide 4: Refractory Logic -->
+        <div class="slide">
             <h2>Refractory Logic</h2>
             <p>Biological-style fatigue protection.</p>
             <ul>
-                <li><span class="highlight">Market Fatigue:</span> Automatic detection of chop and order flow noise.
-                </li>
-                <li><span class="highlight">Signal Dampeners:</span> Threshold attenuation reduces "over-trading".</li>
-                <li><span class="highlight">Regime Lock:</span> Engine stays dormant during low-alpha cycles.</li>
+                <li><span class="highlight">Fatigue Detection:</span> Sensors monitor for market noise and chop.</li>
+                <li><span class="highlight">Threshold Attenuation:</span> Activation requirements increase during
+                    fatigue.</li>
+                <li><span class="highlight">Alpha Preservation:</span> Prevents over-trading in zero-signal
+                    environments.</li>
             </ul>
         </div>
 
-        <!-- Slide 6: The Roadmap -->
-        <div class="slide" id="slide-6">
-            <h2>The Cortex Roadmap</h2>
-            <p>Evolution towards autonomous algorithmic dominance.</p>
+        <!-- Slide 5: The Roadmap -->
+        <div class="slide">
+            <h2>Evolution Roadmap</h2>
+            <p>Strategic expansion into autonomous market dominance.</p>
             <ul>
-                <li><span class="highlight">NITRO:</span> 1s Resolution Audit (Active).</li>
-                <li><span class="highlight">THE CORTEX:</span> Multi-timeframe resonance layers (Upcoming).</li>
-                <li><span class="highlight">NEURAL ENSEMBLES:</span> Cross-asset synchronization (R&D).</li>
+                <li><span class="highlight">NITRO:</span> 1-second resolution auditing (Active).</li>
+                <li><span class="highlight">THE CORTEX:</span> Multi-timeframe resonance (Phase 2).</li>
+                <li><span class="highlight">NEURAL ENSEMBLES:</span> Cross-asset synchronization (Phase 3).</li>
             </ul>
         </div>
 
-        <!-- Slide 7: Conclusion -->
-        <div class="slide" id="slide-7">
+        <!-- Slide 6: Conclusion -->
+        <div class="slide">
             <p style="text-align: center;">FINAL DATA PACKET SENT</p>
             <h1 style="text-align: center;">ADAPT OR<br>PERISH.</h1>
-            <p style="text-align: center;">SYNAPSE CORE © 2026</p>
+            <p style="text-align: center;">SYNAPSE CORE © 2026 // R&D DIVISION</p>
         </div>
     </div>
 
@@ -308,8 +312,8 @@
     </div>
 
     <div class="footer">
-        <div>SYNAPSE CORE™ // R&D DIVISION</div>
-        <div>CONFIDENTIAL_PROTOCOL</div>
+        <div>SYNAPSE CORE™ // HIGH-FIDELITY BRIEFING</div>
+        <div id="scene-counter">SCENE: TITLE_SYNC</div>
     </div>
 
     <script>
@@ -318,12 +322,23 @@
         let touchStartX = 0;
         let touchEndX = 0;
 
+        const sceneNames = [
+            "TITLE_SYNC",
+            "CLUSTER_CONVERGENCE",
+            "CONNECTION_PLASTICITY",
+            "AXON_MULTIPLEXING",
+            "REFRACTORY_DAMPENING",
+            "CORTEX_EXPANSION",
+            "CORE_STABILIZATION"
+        ];
+
         function updateSlides() {
             slides.forEach((s, i) => {
                 s.classList.remove('active');
                 if (i === currentSlide) s.classList.add('active');
             });
             document.getElementById('progress').style.width = ((currentSlide + 1) / slides.length * 100) + "%";
+            document.getElementById('scene-counter').innerText = "SCENE: " + sceneNames[currentSlide];
         }
 
         document.getElementById('nextBtn').onclick = () => {
@@ -334,13 +349,11 @@
             if (currentSlide > 0) { currentSlide--; updateSlides(); }
         };
 
-        // Keyboard support
         window.onkeydown = (e) => {
             if (e.key === 'ArrowRight' || e.key === ' ') document.getElementById('nextBtn').click();
             if (e.key === 'ArrowLeft') document.getElementById('prevBtn').click();
         };
 
-        // Swipe support
         document.getElementById('presentation').ontouchstart = e => touchStartX = e.changedTouches[0].screenX;
         document.getElementById('presentation').ontouchend = e => {
             touchEndX = e.changedTouches[0].screenX;
@@ -348,64 +361,199 @@
             if (touchEndX - touchStartX > 50) document.getElementById('prevBtn').click();
         };
 
-        // --- P5.JS GENERATIVE ANIMATION ---
+        // --- P5.JS MULTI-SCENE ENGINE ---
         let particles = [];
-        let numParticles = 40;
+        let lines = [];
+        let axonLines = [];
+        let ripples = [];
 
         function setup() {
             let cnv = createCanvas(windowWidth, windowHeight);
             cnv.parent('p5-canvas');
-            for (let i = 0; i < numParticles; i++) {
-                particles.push(new Particle());
-            }
+            for (let i = 0; i < 50; i++) particles.push(new Particle());
+            for (let i = 0; i < 20; i++) axonLines.push(new AxonLine());
         }
 
         function draw() {
-            background(0);
-            for (let p of particles) {
-                p.update();
-                p.draw();
-                p.checkNeighbors(particles);
+            background(0, 40); // Subtle trail
+
+            switch (currentSlide) {
+                case 0: // Title
+                    drawBackgroundParticles(1.5);
+                    break;
+                case 1: // Synaptic Cluster
+                    drawCluster();
+                    break;
+                case 2: // Connection Strength
+                    drawStrengthNodes();
+                    break;
+                case 3: // Axon-Link
+                    drawAxonBus();
+                    break;
+                case 4: // Refractory Logic
+                    drawRefractoryWaves();
+                    break;
+                case 5: // Roadmap
+                    drawRoadmapGrid();
+                    break;
+                case 6: // Conclusion
+                    drawFinalPulse();
+                    break;
             }
         }
 
-        function windowResized() {
-            resizeCanvas(windowWidth, windowHeight);
+        function windowResized() { resizeCanvas(windowWidth, windowHeight); }
+
+        // --- SCENE HELPERS ---
+
+        function drawBackgroundParticles(speedMult) {
+            for (let p of particles) {
+                p.update(speedMult);
+                p.draw();
+                p.checkNeighbors(particles, 150);
+            }
         }
+
+        function drawCluster() {
+            let centerX = width / 2;
+            let centerY = height / 2;
+            noFill();
+            stroke(255, 30);
+            ellipse(centerX, centerY, 300);
+
+            // Hub
+            fill(255);
+            noStroke();
+            ellipse(centerX, centerY, 10 + sin(frameCount * 0.1) * 5);
+
+            // 8 Nodes
+            for (let i = 0; i < 8; i++) {
+                let angle = TWO_PI / 8 * i + (frameCount * 0.01);
+                let x = centerX + Math.cos(angle) * 150;
+                let y = centerY + Math.sin(angle) * 150;
+
+                fill(255, 150);
+                ellipse(x, y, 6);
+                stroke(255, 50);
+                line(x, y, centerX, centerY);
+
+                if (frameCount % 60 < 10) { // Firing pulse
+                    let d = (frameCount % 60) / 10;
+                    let px = lerp(x, centerX, d);
+                    let py = lerp(y, centerY, d);
+                    fill(255);
+                    noStroke();
+                    ellipse(px, py, 4);
+                }
+            }
+        }
+
+        function drawStrengthNodes() {
+            for (let i = 0; i < 15; i++) {
+                let x = (width / 16) * (i + 1);
+                let y = height / 2 + sin(frameCount * 0.05 + i) * 100;
+                let sz = 10 + noise(i, frameCount * 0.01) * 40;
+                let alpha = map(sz, 10, 50, 50, 255);
+                fill(255, alpha);
+                noStroke();
+                ellipse(x, y, sz);
+                if (i > 0) {
+                    stroke(255, 20);
+                    line(x, y, (width / 16) * i, height / 2 + sin(frameCount * 0.05 + (i - 1)) * 100);
+                }
+            }
+        }
+
+        function drawAxonBus() {
+            for (let a of axonLines) {
+                a.update();
+                a.draw();
+            }
+        }
+
+        function drawRefractoryWaves() {
+            if (frameCount % 40 === 0) ripples.push({ r: 0, a: 255 });
+            noFill();
+            for (let i = ripples.length - 1; i >= 0; i--) {
+                let rip = ripples[i];
+                rip.r += 5;
+                rip.a -= 2;
+                stroke(255, rip.a);
+                ellipse(width / 2, height / 2, rip.r);
+                if (rip.a <= 0) ripples.splice(i, 1);
+            }
+            // Sluggish particles
+            drawBackgroundParticles(0.2);
+        }
+
+        function drawRoadmapGrid() {
+            stroke(255, 15);
+            let spacing = 50;
+            for (let x = 0; x < width; x += spacing) line(x, 0, x + sin(frameCount * 0.01) * 100, height);
+            for (let y = 0; y < height; y += spacing) line(0, y, width, y + cos(frameCount * 0.01) * 100);
+        }
+
+        function drawFinalPulse() {
+            let sz = 200 + sin(frameCount * 0.02) * 100;
+            fill(255, 20);
+            noStroke();
+            ellipse(width / 2, height / 2, sz);
+            fill(255, 100);
+            ellipse(width / 2, height / 2, sz / 2);
+            fill(255);
+            ellipse(width / 2, height / 2, 20);
+        }
+
+        // --- CLASSES ---
 
         class Particle {
             constructor() {
                 this.pos = createVector(random(width), random(height));
                 this.vel = createVector(random(-0.5, 0.5), random(-0.5, 0.5));
                 this.size = random(2, 4);
-                this.pulse = random(255);
             }
-
-            update() {
-                this.pos.add(this.vel);
+            update(m) {
+                this.pos.add(p5.Vector.mult(this.vel, m));
                 if (this.pos.x > width) this.pos.x = 0;
                 if (this.pos.x < 0) this.pos.x = width;
                 if (this.pos.y > height) this.pos.y = 0;
                 if (this.pos.y < 0) this.pos.y = height;
-                this.pulse += 2;
             }
-
             draw() {
                 noStroke();
-                let pColor = 100 + sin(frameCount * 0.05) * 50;
-                fill(pColor);
+                fill(255, 100);
                 ellipse(this.pos.x, this.pos.y, this.size);
             }
-
-            checkNeighbors(others) {
+            checkNeighbors(others, range) {
                 for (let other of others) {
                     let d = dist(this.pos.x, this.pos.y, other.pos.x, other.pos.y);
-                    if (d < 150) {
-                        stroke(255, 255 - (d * 1.5));
-                        strokeWeight(map(d, 0, 150, 1.5, 0));
+                    if (d < range) {
+                        stroke(255, map(d, 0, range, 50, 0));
+                        strokeWeight(0.5);
                         line(this.pos.x, this.pos.y, other.pos.x, other.pos.y);
                     }
                 }
+            }
+        }
+
+        class AxonLine {
+            constructor() {
+                this.y = random(height);
+                this.speed = random(5, 15);
+                this.offset = random(width);
+                this.len = random(50, 200);
+            }
+            update() {
+                this.offset += this.speed;
+                if (this.offset > width) this.offset = -this.len;
+            }
+            draw() {
+                stroke(255, 100);
+                strokeWeight(1);
+                line(this.offset, this.y, this.offset + this.len, this.y);
+                noStroke();
+                fill(255);
+                ellipse(this.offset + this.len, this.y, 3);
             }
         }
     </script>
