@@ -1,0 +1,125 @@
+//@version=6
+indicator("Synapse Sub-Hub: Friction [Slot D]", overlay=false)
+
+// =============================================================================
+// Synapse SUB-HUB: FRICTION & ABSORPTION [SLOT D] (Physics-Based Context)
+// =============================================================================
+// Replaces the legacy "ML Attack" (Predictive Model).
+// Focuses purely on PHYSICS: FORCE (Delta) vs WORK (Price Displacement).
+// Detects LIMIT WALLS and LIQUIDITY ABSORPTION instantly.
+// =============================================================================
+
+// --- 1. CONFIGURATION ---
+group_phys = "1. Physics Engine"
+force_lookback = input.int(3, "Force Lookback (Bars)", minval=1, group=group_phys)
+absorb_ratio   = input.float(2.0, "Absorption Ratio (Effort vs Result)", minval=1.0, group=group_phys, tooltip="How much more Force than Work is needed to trigger?")
+min_force      = input.float(100.0, "Min Force (Delta)", minval=10.0, group=group_phys)
+
+group_learn = "2. Bayesian Learning"
+win_size    = input.int(10, "Efficacy Window", minval=5, group=group_learn)
+
+// --- 2. FORCE vs WORK ENGINE ---
+// Force (F) = Net Order Flow (Delta)
+// Work (W) = Price Displacement (Range)
+
+// Approximate 5s Delta (since we don't have intrinsic tick data here)
+// We assume standard "Polarity" delta: High Volume * Direction
+float ticks_moved = (high - low) / syminfo.mintick
+float est_delta   = ticks_moved > 0 ? (close > open ? volume * 0.7 : -volume * 0.7) : 0.0
+
+// Rolling Force (Delta Sum)
+float force = math.sum(est_delta, force_lookback)
+
+// Rolling Work (Net Displacement)
+float start_price = close[force_lookback]
+float end_price   = close
+float work        = math.abs(end_price - start_price) / syminfo.mintick
+
+// --- 3. FRICTION CALCULATION ---
+// Friction = Force / (Work + 1)
+// High Friction means huge volume but price isn't moving (Absorption)
+
+float abs_force = math.abs(force)
+float friction  = abs_force / (work + 1.0) // Avoid div by zero
+
+// Dynamic Threshold: 
+// We want to see Force > Min Force AND Friction > Ratio
+bool heavy_effort = abs_force > min_force
+bool no_result    = friction > absorb_ratio
+
+// --- 4. SIGNAL GENERATION ---
+// If Bulls are pushing (Positive Force) but getting nowhere (High Friction),
+// it means Bears are Absorbing -> Reverse Short.
+float final_bias = 0.0
+float pulse_strength = 0.0
+
+if heavy_effort and no_result
+    if force > 0 // Bulls pushing into a wall
+        final_bias := -1.0 // Reversal Short
+        pulse_strength := 2.0 // Wall Detected
+    else if force < 0 // Bears pushing into a floor
+        final_bias := 1.0 // Reversal Long
+        pulse_strength := 2.0 // Floor Detected
+
+// --- 5. AUDIT ENGINE (Bayesian) ---
+type NodeState
+    float entryPrice = na
+    int   direction  = 0
+    float[] outcomes
+
+f_audit_node(_bias, _state, _tp_mult) =>
+    float _atr = ta.atr(14)
+    if not na(_state.entryPrice)
+        float dist = _state.direction == 1 ? high - _state.entryPrice : _state.entryPrice - low
+        float sl_dist = _state.direction == 1 ? _state.entryPrice - low : high - _state.entryPrice
+        
+        bool hitTP = dist >= _atr * _tp_mult
+        bool hitSL = sl_dist >= _atr * 1.0
+        
+        if hitTP or hitSL
+            array.push(_state.outcomes, hitTP ? 1.0 : 0.0)
+            if array.size(_state.outcomes) > win_size
+                array.shift(_state.outcomes)
+            _state.entryPrice := na
+            
+    if _bias != 0 and na(_state.entryPrice)
+        _state.entryPrice := close
+        _state.direction := _bias > 0 ? 1 : -1
+        
+    array.size(_state.outcomes) > 0 ? array.avg(_state.outcomes) * 100 : 50.0
+
+var s_node = NodeState.new(na, 0, array.new_float(0))
+float win_rate = f_audit_node(final_bias, s_node, 1.5)
+
+// --- 6. Axon-Link v3.0 ENCODING ---
+// Protocol: 200.PBCCC
+float bus_proto = 200.0
+float p_digit = pulse_strength
+float b_digit = final_bias == 1.0 ? 1.0 : (final_bias == -1.0 ? 2.0 : 0.0)
+float c_val   = math.floor(win_rate * 10 + 0.5) 
+
+float Synapse_bus = bus_proto + (p_digit * 0.1) + (b_digit * 0.01) + (c_val / 100000.0)
+plot(Synapse_bus, "Friction Bus Output", display=display.status_line)
+
+// --- DASHBOARD ---
+var table hud = table.new(position.middle_right, 3, 5, bgcolor=color.new(color.black, 40), border_width=1)
+if barstate.islast
+    table.cell(hud, 0, 0, "FRICTION HUB", text_color=color.aqua)
+    table.cell(hud, 1, 0, "VALUE", text_color=color.silver, text_size=size.small)
+    table.cell(hud, 2, 0, "STATE", text_color=color.silver, text_size=size.small)
+
+    table.cell(hud, 0, 1, "Force (Delta)", text_color=color.white, text_halign=text.align_left)
+    table.cell(hud, 1, 1, str.tostring(force, "#"), text_color=force > 0 ? color.lime : (force < 0 ? color.red : color.gray))
+    table.cell(hud, 2, 1, heavy_effort ? "STRONG" : "WEAK", text_color=heavy_effort ? color.yellow : color.gray)
+
+    table.cell(hud, 0, 2, "Work (Dist)", text_color=color.white, text_halign=text.align_left)
+    table.cell(hud, 1, 2, str.tostring(work, "#.0") + "t", text_color=color.silver)
+    table.cell(hud, 2, 2, work < 2.0 ? "STUCK" : "OPEN", text_color=work < 2.0 ? color.orange : color.gray)
+
+    table.cell(hud, 0, 3, "Friction Ratio", text_color=color.white, text_halign=text.align_left)
+    table.cell(hud, 1, 3, str.tostring(friction, "#.0"), text_color=color.silver)
+    table.cell(hud, 2, 3, no_result ? "WALL" : "-", text_color=no_result ? color.fuchsia : color.gray)
+
+    table.cell(hud, 0, 4, "FINAL OUT", text_color=color.aqua)
+    table.cell(hud, 1, 4, str.tostring(Synapse_bus, "#.####"), text_color=color.gray, text_size=size.tiny)
+    table.cell(hud, 2, 4, final_bias != 0 ? "ABSORB" : "-", text_color=final_bias != 0 ? color.yellow : color.gray)

@@ -1,0 +1,198 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Selfsimilarity
+
+//@version=6
+indicator("Synapse Sub-Hub: Hyper-Polarity [Mean Reversion]", overlay=true, max_boxes_count=500, max_lines_count=500)
+
+// =============================================================================
+// 🛰️ HYPER-POLARITY ENGINE: EXHAUSTION & REVERSAL (Axon-Link v3.0)
+// =============================================================================
+// Focus: Identifying Institutional Traps, Delta Exhaustion, and Mean Reversion.
+// =============================================================================
+
+import Selfsimilarity/selfsimilarty/1 as Synapse
+
+// -----------------------------------------------------------------------------
+// 1. INPUTS & CONFIGURATION
+// -----------------------------------------------------------------------------
+group_sim = "🧪 Stress Test / Simulation Mode"
+sim_mode  = input.bool(false, "Enable Simulation Mode", group=group_sim)
+sim_reg   = input.string("Trap (Bullish)", "Simulated Regime", options=["Trap (Bullish)", "Trap (Bearish)", "Deep Exhaustion", "Clean Reversal"], group=group_sim)
+
+group_pol = "1. Polarity Core (Delta Divergence)"
+lookback_div = input.int(5, "Divergence Lookback", minval=2, group=group_pol)
+threshold_pol = input.float(0.8, "Polarity Sensitivity", minval=0.1, group=group_pol)
+
+group_imb = "2. Absorption & Imbalance"
+imb_ratio = input.float(2.4, "Imbalance Ratio", minval=1.1, group=group_imb)
+stack_count = input.int(3, "Min Stack Count", minval=1, group=group_imb)
+
+group_vol = "3. Volatility Exhaustion (Z-Score)"
+vol_len   = input.int(20, "Lookback Period", minval=5, group=group_vol)
+vol_dev   = input.float(2.5, "Exhaustion Deviations (σ)", minval=1.5, group=group_vol)
+
+group_reg = "4. Regime & Structure (Filters)"
+adx_len     = input.int(14, "ADX Period", group=group_reg)
+adx_thresh  = input.int(20, "Strong Trend Threshold", group=group_reg)
+ema_len     = input.int(21, "Structural Baseline (EMA)", group=group_reg)
+max_ema_dist = input.float(2.2, "Max EMA Dist (ATR x)", group=group_reg)
+use_kernel  = input.bool(true, "Use Kernel Confirmation", group=group_reg)
+k_h         = input.int(8, "Kernel Lookback", group=group_reg)
+max_candle  = input.float(3.5, "Max Candle Range (ATR x)", group=group_reg)
+bars_wait   = input.int(3, "Min Bars Between Signals", group=group_reg)
+
+group_viz = "Visuals & Aesthetics"
+show_bands = input.bool(true, "Show Exhaustion Bands", group=group_viz)
+col_bull = input.color(color.aqua, "Bullish Color", group=group_viz)
+col_bear = input.color(color.fuchsia, "Bearish Color", group=group_viz)
+
+// -----------------------------------------------------------------------------
+// 2. CORE ENGINES & REGIME DETECTION
+// -----------------------------------------------------------------------------
+[b_div, raw_delta] = matrix.f_delta_divergence(lookback_div)
+[up_band, dn_band, b_vol] = matrix.f_exhaustion_z(vol_len, vol_dev)
+[b_abs] = matrix.f_absorption_scan(imb_ratio / 2.0)
+
+// Regime Detection (ADX + DMI)
+[di_plus, di_minus, adx_val] = ta.dmi(adx_len, adx_len)
+bool is_trending = adx_val > adx_thresh
+bool is_chop     = not is_trending
+
+// Kernel Smoothing (Nadaraya-Watson Lite)
+f_kernel(_src, _lookback) =>
+    float _sum = 0.0
+    float _wSum = 0.0
+    for i = 0 to _lookback * 2
+        float _w = math.exp(-(math.pow(i, 2) / (2 * math.pow(_lookback, 2))))
+        _sum  += _src[i] * _w
+        _wSum += _w
+    _sum / _wSum
+
+k_val = f_kernel(close, k_h)
+bool k_bull = k_val > k_val[1]
+bool k_bear = k_val < k_val[1]
+
+// Structural Filters
+ema_val = ta.ema(close, ema_len)
+atr_val = ta.atr(14)
+dist_ema = (close - ema_val) / atr_val
+bool too_far_bull = dist_ema > max_ema_dist
+bool too_far_bear = dist_ema < -max_ema_dist
+
+// -----------------------------------------------------------------------------
+// 3. EXECUTION & LOGIC MAPPING
+// -----------------------------------------------------------------------------
+// Simulation Overrides
+b_div := sim_mode ? (sim_reg == "Trap (Bullish)" ? 1.0 : (sim_reg == "Trap (Bearish)" ? -1.0 : 0.0)) : b_div
+b_vol := sim_mode ? (sim_reg == "Deep Exhaustion" ? 1.0 : 0.0) : b_vol
+
+// --- CONSENSUS LOGIC (MEASURED & GATED) ---
+
+// 1. Mean Reversion (Measured)
+// Timing: Waits for Price to stall (Kernel slope reduction) + Exhaustion
+float bias_rev = 0.0
+bool kernel_stalled = math.abs(k_val - k_val[1]) < math.abs(k_val[1] - k_val[2])
+bool candle_pass = (high - low) < atr_val * max_candle
+
+if candle_pass and (is_chop or math.abs(dist_ema) > 3.0) and b_vol != 0
+    if kernel_stalled // Institutional "Wait and See"
+        if b_div == b_vol or b_abs == b_vol
+            bias_rev := b_vol
+
+float conf_rev = 0.0
+if bias_rev != 0
+    conf_rev := 50.0 + (b_div == bias_rev ? 25.0 : 0.0) + (b_abs == bias_rev ? 25.0 : 0.0)
+
+// 2. Trending (Up Only Confirmation)
+// Stricter: Only fire in TRENDING regime + KERNEL confirm + STRUCTURAL pass
+float bias_trend = 0.0
+if is_trending and candle_pass
+    if b_abs != 0
+        if (b_abs == 1.0 and k_bull and not too_far_bull) or (b_abs == -1.0 and k_bear and not too_far_bear)
+            bias_trend := b_abs
+    else if b_div != 0 and b_vol == 0 
+        if (b_div == 1.0 and k_bull and not too_far_bull) or (b_div == -1.0 and k_bear and not too_far_bear)
+            bias_trend := b_div
+
+// Simulation Overrides
+bias_rev   := sim_mode ? (sim_reg == "Trap (Bullish)" ? 1.0 : (sim_reg == "Trap (Bearish)" ? -1.0 : 0.0)) : bias_rev
+bias_trend := sim_mode ? (sim_reg == "Clean Reversal" ? 1.0 : 0.0) : bias_trend
+
+// Cooldown Logic
+var int last_sig = -999
+bool cooldown_ok = (bar_index - last_sig) >= bars_wait
+if (bias_rev != 0 or bias_trend != 0) and not cooldown_ok
+    bias_rev   := 0.0
+    bias_trend := 0.0
+
+if bias_rev != 0 or bias_trend != 0
+    last_sig := bar_index
+
+float conf_trend = 0.0
+if bias_trend != 0
+    conf_trend := 60.0 + (b_abs == bias_trend ? 20.0 : 0.0) + (b_div == bias_trend ? 20.0 : 0.0)
+
+// Pulse Timers (Sticky for 15s)
+var int t_rev = 0
+var int t_trend = 0
+if bias_rev != 0
+    t_rev := 3
+else if t_rev > 0
+    t_rev -= 1
+
+if bias_trend != 0
+    t_trend := 3
+else if t_trend > 0
+    t_trend -= 1
+
+float p_rev   = t_rev > 0 ? (bias_rev > 0 ? 1.0 : (bias_rev < 0 ? 2.0 : 0.0)) : 0.0
+float p_trend = t_trend > 0 ? (bias_trend > 0 ? 1.0 : (bias_trend < 0 ? 2.0 : 0.0)) : 0.0
+
+// -----------------------------------------------------------------------------
+// 4. Axon-Link v3.0 ENCODING (Double Output)
+// -----------------------------------------------------------------------------
+// Output 1: Reversal Bus
+float b_dig_rev = bias_rev > 0 ? 1.0 : (bias_rev < 0 ? 2.0 : 0.0)
+float bus_rev   = 200.0 + (p_rev * 0.1) + (b_dig_rev * 0.01) + (conf_rev * 0.00001)
+
+// Output 2: Trending Bus
+float b_dig_trend = bias_trend > 0 ? 1.0 : (bias_trend < 0 ? 2.0 : 0.0)
+float bus_trend   = 200.0 + (p_trend * 0.1) + (b_dig_trend * 0.01) + (conf_trend * 0.00001)
+
+plot(bus_rev, "Output: Polarity REVERSAL Bus", display=display.status_line + display.data_window)
+plot(bus_trend, "Output: Polarity TRENDING Bus", display=display.status_line + display.data_window)
+
+// -----------------------------------------------------------------------------
+// 5. HYPER-AESTHETIC HUD & VISUALS
+// -----------------------------------------------------------------------------
+plot(show_bands ? up_band : na, "Exhaustion Upper", color.new(col_bear, 60), style=plot.style_linebr)
+plot(show_bands ? dn_band : na, "Exhaustion Lower", color.new(col_bull, 60), style=plot.style_linebr)
+
+var table hud = table.new(position.bottom_right, 2, 8, bgcolor=color.new(#000000, 30), border_width=1, border_color=color.new(color.gray, 50))
+if barstate.islast
+    table.cell(hud, 0, 0, "HYPER-POLARITY", text_color=color.aqua, text_size=size.small)
+    table.cell(hud, 1, 0, bias_rev != 0 or bias_trend != 0 ? "⚠️ ACTIVE" : "STABLE", text_color=color.white)
+    
+    table.cell(hud, 0, 1, "REVERSAL BIAS", text_color=color.silver)
+    table.cell(hud, 1, 1, bias_rev == 1 ? "BULL" : (bias_rev == -1 ? "BEAR" : "NONE"), text_color=bias_rev == 1 ? color.lime : (bias_rev == -1 ? color.red : color.gray))
+    
+    table.cell(hud, 0, 2, "TRENDING BIAS", text_color=color.silver)
+    table.cell(hud, 1, 2, bias_trend == 1 ? "BULL" : (bias_trend == -1 ? "BEAR" : "NONE"), text_color=bias_trend == 1 ? color.lime : (bias_trend == -1 ? color.red : color.gray))
+    
+    table.cell(hud, 0, 3, "VOL EXHAUST", text_color=color.silver)
+    table.cell(hud, 1, 3, b_vol != 0 ? "PEAK" : "NORM", text_color=b_vol != 0 ? col_bear : color.gray)
+    
+    table.cell(hud, 0, 4, "REGIME", text_color=color.silver)
+    table.cell(hud, 1, 4, is_trending ? "TRENDING" : "CHOP", text_color=is_trending ? color.lime : color.orange)
+
+    table.cell(hud, 0, 5, "STRUCTURE", text_color=color.silver)
+    table.cell(hud, 1, 5, too_far_bull or too_far_bear ? "OVER-EXT" : "SOLID", text_color=too_far_bull or too_far_bear ? color.red : color.gray)
+
+    table.cell(hud, 0, 6, "CONFIDENCE (R/T)", text_color=color.silver)
+    table.cell(hud, 1, 6, str.tostring(conf_rev, "0") + "/" + str.tostring(conf_trend, "0") + "%", text_color=color.aqua)
+
+// Signal Visuals
+plotshape(bias_rev > 0,   "Bull Rev",   shape.triangleup,   location.belowbar, color=col_bull, size=size.small, text="REVERSAL", textcolor=color.white)
+plotshape(bias_rev < 0,   "Bear Rev",   shape.triangledown, location.abovebar, color=col_bear, size=size.small, text="REVERSAL", textcolor=color.white)
+plotshape(bias_trend > 0, "Bull Trend", shape.triangleup,   location.belowbar, color=col_bull, size=size.small, text="TRENDING", textcolor=color.white)
+plotshape(bias_trend < 0, "Bear Trend", shape.triangledown, location.abovebar, color=col_bear, size=size.small, text="TRENDING", textcolor=color.white)

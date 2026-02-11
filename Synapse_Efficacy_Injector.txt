@@ -1,0 +1,14 @@
+// =============================================================================
+// 🏦 DAILY EFFICACY INJECTION TEMPLATE
+// =============================================================================
+// Copy this block into Synapse_Library.pine once a day after your trading session.
+// Update the percentages based on your trade logs.
+
+export f_efficacy_vault() =>
+    float winRateA = 55.0  // Order Flow
+    float winRateB = 52.0  // Institutional Zones
+    float winRateC = 58.0  // ML Consensus
+    float winRateD = 50.0  // Structural Vitality
+    float winRateE = 56.0  // Momentum Hub
+    float winRateExec = 54.0 // Total Portfolio Performance
+    [winRateA, winRateB, winRateC, winRateD, winRateE, winRateExec]

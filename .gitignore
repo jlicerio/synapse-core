@@ -1,0 +1,5 @@
+node_modules/
+dist/
+*.xlsx
+backup_*/
+.DS_Store

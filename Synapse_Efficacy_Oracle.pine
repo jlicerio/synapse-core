@@ -1,0 +1,212 @@
+//@version=6
+indicator("Synapse Efficacy Oracle [Auto-Sync Tool]", overlay=false)
+
+// =============================================================================
+// Synapse EFFICACY ORACLE (Tier-2 Optimization)
+// =============================================================================
+// Monitors the Tier-2 Hubs and generates Pine Script code for weight updates.
+// Use this to sync your 'Synapse_Library.pine' with today's live performance.
+// =============================================================================
+
+// --- HUB INPUTS (Synapse Bus 200.PB) ---
+group_hubs = "1. Synapse Hub Connections"
+src_of   = input.source(close, "Order Flow Hub Bus", group=group_hubs)
+src_inst = input.source(close, "Slot B: Institutional Hub Bus", group=group_hubs)
+src_ml   = input.source(close, "Slot C: ML Consensus Hub Bus", group=group_hubs)
+src_retail = input.source(close, "Slot D: Structural Vitality Hub Bus", group=group_hubs)
+src_mom  = input.source(close, "Slot E: Momentum Hub Bus", group=group_hubs)
+src_master = input.source(close, "Master Hub Bus (UNB)", group=group_hubs, tooltip="Required for PB vs BRK classification.")
+
+group_eval = "2. Optimization Settings"
+evalWindow = input.int(20, "Signals to Audit", minval=10, group=group_eval)
+proxyPT    = input.float(0.7, "Proxy Partial TP (ATR)", group=group_eval)
+table_pos  = input.string(position.top_left, "HUD Position", options=[position.top_right, position.bottom_right, position.top_left, position.bottom_left, position.middle_right, position.middle_left], group="3. UI Settings")
+proxySL    = input.float(1.0, "Proxy SL (ATR x)", group=group_eval)
+
+// --- AUDIT ENGINE ---
+type OutcomeState
+    float   entry = na
+    int     dir   = 0
+    int     eType = 0 // 1:PB, 2:BRK
+    float[] history
+    float[] history_pb
+    float[] history_brk
+
+f_audit(_bus, _tp, _sl, _window, _state, _type, _atr, _ltfH, _ltfL) =>
+    val = _bus - 200.0
+    bDigit = math.floor(val * 100 + 0.5) % 10
+    bias = bDigit == 1 ? 1 : bDigit == 2 ? -1 : 0
+    
+    if bias != 0 and na(_state.entry)
+        _state.entry := close
+        _state.dir   := bias
+        _state.eType := _type
+        
+    if not na(_state.entry)
+        tpP = _state.dir == 1 ? _state.entry + (_atr * _tp) : _state.entry - (_atr * _tp)
+        slP = _state.dir == 1 ? _state.entry - (_atr * _sl) : _state.entry + (_atr * _sl)
+        
+        bool hitTP = false
+        bool hitSL = false
+        
+        if array.size(_ltfH) > 0
+            for i = 0 to array.size(_ltfH) - 1
+                h = array.get(_ltfH, i)
+                l = array.get(_ltfL, i)
+                if _state.dir == 1
+                    if h >= tpP
+                        hitTP := true
+                        break
+                    if l <= slP
+                        hitSL := true
+                        break
+                else
+                    if l <= tpP
+                        hitTP := true
+                        break
+                    if h >= slP
+                        hitSL := true
+                        break
+
+        if hitTP or hitSL
+            float res = hitTP ? 1.0 : 0.0
+            array.push(_state.history, res)
+            if array.size(_state.history) > _window
+                array.shift(_state.history)
+            
+            if _state.eType == 1 // Pullback
+                array.push(_state.history_pb, res)
+                if array.size(_state.history_pb) > _window
+                    array.shift(_state.history_pb)
+            else if _state.eType == 2 // Breakout
+                array.push(_state.history_brk, res)
+                if array.size(_state.history_brk) > _window
+                    array.shift(_state.history_brk)
+                    
+            _state.entry := na
+            
+    _win    = array.size(_state.history) > 0 ? array.avg(_state.history) * 100 : 50.0
+    _win_pb = array.size(_state.history_pb) > 0 ? array.avg(_state.history_pb) * 100 : 50.0
+    _win_br = array.size(_state.history_brk) > 0 ? array.avg(_state.history_brk) * 100 : 50.0
+    [_win, _win_pb, _win_br]
+
+// --- MASTER BUS DECODER ---
+f_unpack_master(wire) =>
+    val = nz(wire) - 100.0
+    valid = val >= 0 and val < 1.0
+    bDigit = valid ? math.floor(val * 10 + 0.5) % 10 : 0
+    etDigit = valid ? math.floor(val * 10000 + 0.5) % 10 : 0
+    _bias = bDigit == 1 ? 1 : bDigit == 2 ? -1 : 0
+    [_bias, etDigit]
+
+// --- TEMPORAL ANCHORING ---
+float atr = request.security(syminfo.tickerid, "1", ta.atr(14), lookahead=barmerge.lookahead_on)
+ltf_h = request.security_lower_tf(syminfo.tickerid, "1S", high)
+ltf_l = request.security_lower_tf(syminfo.tickerid, "1S", low)
+
+var s_of   = OutcomeState.new(na, 0, 0, array.new_float(0), array.new_float(0), array.new_float(0))
+var s_inst = OutcomeState.new(na, 0, 0, array.new_float(0), array.new_float(0), array.new_float(0))
+var s_ml   = OutcomeState.new(na, 0, 0, array.new_float(0), array.new_float(0), array.new_float(0))
+var s_retail = OutcomeState.new(na, 0, 0, array.new_float(0), array.new_float(0), array.new_float(0))
+var s_mom  = OutcomeState.new(na, 0, 0, array.new_float(0), array.new_float(0), array.new_float(0))
+
+[wr_of, wr_of_pb, wr_of_br]     = f_audit(src_of,   proxyPT, proxySL, evalWindow, s_of,   mType, atr, ltf_h, ltf_l)
+[wr_inst, wr_inst_pb, wr_inst_br] = f_audit(src_inst, proxyPT, proxySL, evalWindow, s_inst, mType, atr, ltf_h, ltf_l)
+[wr_ml, wr_ml_pb, wr_ml_br]     = f_audit(src_ml,   proxyPT, proxySL, evalWindow, s_ml,   mType, atr, ltf_h, ltf_l)
+[wr_retail, wr_retail_pb, wr_retail_br] = f_audit(src_retail, proxyPT, proxySL, evalWindow, s_retail, mType, atr, ltf_h, ltf_l)
+[wr_mom, wr_mom_pb, wr_mom_br]   = f_audit(src_mom,  proxyPT, proxySL, evalWindow, s_mom,  mType, atr, ltf_h, ltf_l)
+
+// --- SYSTEM PROFILE AUDIT ---
+var s_pb  = OutcomeState.new(na, 0, 0, array.new_float(0), array.new_float(0), array.new_float(0))
+var s_brk = OutcomeState.new(na, 0, 0, array.new_float(0), array.new_float(0), array.new_float(0))
+
+[mBias, mType] = f_unpack_master(src_master)
+
+// Create a dummy bus for f_audit that matches its decoder expectation (200 + bias digit)
+// But we can just handle it manually for the system profile
+f_system_audit(_bias, _type, _targetType, _tp, _sl, _window, _state, _atr, _ltfH, _ltfL) =>
+    if _bias != 0 and _type == _targetType and na(_state.entry)
+        _state.entry := close
+        _state.dir   := _bias
+    
+    // Copy-paste shared logic from f_audit (simplified)
+    if not na(_state.entry)
+        tpP = _state.dir == 1 ? _state.entry + (_atr * _tp) : _state.entry - (_atr * _tp)
+        slP = _state.dir == 1 ? _state.entry - (_atr * _sl) : _state.entry + (_atr * _sl)
+        bool hitTP = false, bool hitSL = false
+        if array.size(_ltfH) > 0
+            for i = 0 to array.size(_ltfH) - 1
+                h = array.get(_ltfH, i), l = array.get(_ltfL, i)
+                if _state.dir == 1
+                    if h >= tpP 
+                        hitTP := true
+                        break 
+                    if l <= slP 
+                        hitSL := true
+                        break 
+                else
+                    if l <= tpP 
+                        hitTP := true
+                        break 
+                    if h >= slP 
+                        hitSL := true
+                        break 
+        if hitTP or hitSL
+            array.push(_state.history, hitTP ? 1.0 : 0.0)
+            if array.size(_state.history) > _window 
+                array.shift(_state.history)
+            _state.entry := na
+    array.size(_state.history) > 0 ? array.avg(_state.history) * 100 : 50.0
+
+wr_pb  = f_system_audit(mBias, mType, 1, proxyTP, proxySL, evalWindow, s_pb,  atr, ltf_h, ltf_l)
+wr_brk = f_system_audit(mBias, mType, 2, proxyTP, proxySL, evalWindow, s_brk, atr, ltf_h, ltf_l)
+
+// --- CODE GENERATOR ---
+if barstate.islast
+    label_text = "--- Synapse EFFICACY OVERRIDE ---\n"
+    label_text += "// Copy-Paste into Synapse_Library.pine\n\n"
+    label_text += "f_efficacy_vault() =>\n"
+    label_text += str.format("    float winRateA = {0,number,#.#} // Order Flow\n", wr_of)
+    label_text += str.format("    float winRateB = {0,number,#.#} // Institutional\n", wr_inst)
+    label_text += str.format("    float winRateC = {0,number,#.#} // ML Consensus\n", wr_ml)
+    label_text += str.format("    float winRateD = {0,number,#.#} // Structural Vitality\n", wr_retail)
+    label_text += str.format("    float winRateE = {0,number,#.#} // Momentum\n", wr_mom)
+    label_text += "    [winRateA, winRateB, winRateC, winRateD, winRateE, 54.0]\n"
+    
+    var label oracle_label = na
+    if na(oracle_label)
+        oracle_label := label.new(bar_index, high, label_text, color=color.new(color.black, 10), textcolor=color.aqua, style=label.style_label_left, text_font_family=font.family_monospace)
+    else
+        label.set_xy(oracle_label, bar_index, high)
+        label.set_text(oracle_label, label_text)
+
+// --- HUD VIS ---
+var table tab = table.new(table_pos, 3, 7, bgcolor=color.new(color.black, 40), border_width=1)
+if barstate.islast
+    table.cell(tab, 0, 0, "ORACLE AUDIT", text_color=color.aqua)
+    table.cell(tab, 1, 0, "WIN %", text_color=color.aqua)
+    table.cell(tab, 2, 0, "PB / BRK", text_color=color.orange)
+
+    table.cell(tab, 0, 1, "Slot A (OF)")
+    table.cell(tab, 1, 1, str.tostring(wr_of, "0.0") + "%", text_color=wr_of >= 50 ? color.lime : color.red)
+    table.cell(tab, 2, 1, str.tostring(wr_of_pb, "0") + " / " + str.tostring(wr_of_br, "0"), text_color=color.gray)
+
+    table.cell(tab, 0, 2, "Slot B (INST)")
+    table.cell(tab, 1, 2, str.tostring(wr_inst, "0.0") + "%", text_color=wr_inst >= 50 ? color.lime : color.red)
+    table.cell(tab, 2, 2, str.tostring(wr_inst_pb, "0") + " / " + str.tostring(wr_inst_br, "0"), text_color=color.gray)
+
+    table.cell(tab, 0, 3, "Slot C (ML)")
+    table.cell(tab, 1, 3, str.tostring(wr_ml, "0.0") + "%", text_color=wr_ml >= 50 ? color.lime : color.red)
+    table.cell(tab, 2, 3, str.tostring(wr_ml_pb, "0") + " / " + str.tostring(wr_ml_br, "0"), text_color=color.gray)
+
+    table.cell(tab, 0, 4, "Slot D (VITALITY)")
+    table.cell(tab, 1, 4, str.tostring(wr_retail, "0.0") + "%", text_color=wr_retail >= 50 ? color.lime : color.red)
+    table.cell(tab, 2, 4, str.tostring(wr_retail_pb, "0") + " / " + str.tostring(wr_retail_br, "0"), text_color=color.gray)
+
+    table.cell(tab, 0, 5, "Slot E (MOM)")
+    table.cell(tab, 1, 5, str.tostring(wr_mom, "0.0") + "%", text_color=wr_mom >= 50 ? color.lime : color.red)
+    table.cell(tab, 2, 5, str.tostring(wr_mom_pb, "0") + " / " + str.tostring(wr_mom_br, "0"), text_color=color.gray)
+
+    table.cell(tab, 0, 6, "SYSTEM TOTAL", text_color=color.aqua)
+    table.cell(tab, 1, 6, str.tostring((wr_pb + wr_brk)/2, "0.0") + "%", text_color=color.white)
+    table.cell(tab, 2, 6, str.tostring(wr_pb, "0.0") + " / " + str.tostring(wr_brk, "0.0"), text_color=color.aqua)

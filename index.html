@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Synapse Core™ | Technology Briefing</title>
+    <style>
+        :root {
+            --bg-deep: #050505;
+            --accent-blue: #00e5ff;
+            --accent-purple: #bc13fe;
+            --text-main: #e0e0e0;
+            --glass-bg: rgba(255, 255, 255, 0.03);
+            --glass-border: rgba(255, 255, 255, 0.1);
+        }
+
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;700&family=Orbitron:wght@400;700&display=swap');
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: var(--bg-deep);
+            color: var(--text-main);
+            font-family: 'Inter', sans-serif;
+            overflow: hidden;
+            height: 100vh;
+            width: 100vw;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* Neural Background Effect */
+        #bg-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            opacity: 0.4;
+        }
+
+        .presentation-container {
+            width: 90vw;
+            height: 80vh;
+            max-width: 1200px;
+            position: relative;
+            perspective: 1000px;
+        }
+
+        .slide {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: var(--glass-bg);
+            backdrop-filter: blur(15px);
+            border: 1px solid var(--glass-border);
+            border-radius: 20px;
+            padding: 60px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            opacity: 0;
+            transform: scale(0.95);
+            transition: all 0.6s cubic-bezier(0.23, 1, 0.32, 1);
+            pointer-events: none;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+        }
+
+        .slide.active {
+            opacity: 1;
+            transform: scale(1);
+            pointer-events: auto;
+            z-index: 10;
+        }
+
+        .slide.prev {
+            transform: translateX(-50px) scale(0.9);
+            opacity: 0;
+        }
+
+        .slide.next {
+            transform: translateX(50px) scale(0.9);
+            opacity: 0;
+        }
+
+        h1,
+        h2 {
+            font-family: 'Orbitron', sans-serif;
+            color: var(--accent-blue);
+            margin-bottom: 20px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            text-shadow: 0 0 15px rgba(0, 229, 255, 0.4);
+        }
+
+        h1 {
+            font-size: 3rem;
+        }
+
+        h2 {
+            font-size: 2rem;
+            border-left: 4px solid var(--accent-purple);
+            padding-left: 20px;
+        }
+
+        p {
+            font-size: 1.2rem;
+            line-height: 1.6;
+            margin-bottom: 20px;
+            font-weight: 300;
+        }
+
+        ul {
+            list-style: none;
+            margin-top: 20px;
+        }
+
+        li {
+            margin-bottom: 15px;
+            padding-left: 30px;
+            position: relative;
+            font-size: 1.1rem;
+        }
+
+        li::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 50%;
+            width: 12px;
+            height: 2px;
+            background: var(--accent-purple);
+            transform: translateY(-50%);
+            box-shadow: 0 0 10px var(--accent-purple);
+        }
+
+        .highlight {
+            color: var(--accent-blue);
+            font-weight: 700;
+        }
+
+        .controls {
+            position: fixed;
+            bottom: 40px;
+            right: 40px;
+            display: flex;
+            gap: 20px;
+            z-index: 100;
+        }
+
+        .btn {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--glass-border);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-family: 'Orbitron', sans-serif;
+            transition: 0.3s;
+        }
+
+        .btn:hover {
+            background: var(--accent-blue);
+            color: black;
+            box-shadow: 0 0 20px var(--accent-blue);
+        }
+
+        .progress-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            height: 4px;
+            background: linear-gradient(to right, var(--accent-blue), var(--accent-purple));
+            width: 0%;
+            transition: width 0.3s;
+            z-index: 100;
+        }
+
+        /* Slide Specific Styles */
+        .title-slide {
+            text-align: center;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .footer-note {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            opacity: 0.5;
+            font-size: 0.8rem;
+            letter-spacing: 2px;
+        }
+
+        .slide-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 40px;
+            align-items: center;
+        }
+
+        .visual-placeholder {
+            width: 100%;
+            height: 300px;
+            border: 1px dashed var(--accent-blue);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            border-radius: 10px;
+            background: rgba(0, 229, 255, 0.05);
+            color: var(--accent-blue);
+            font-family: 'Orbitron', sans-serif;
+            font-size: 0.8rem;
+        }
+    </style>
+</head>
+
+<body>
+
+    <canvas id="bg-canvas"></canvas>
+
+    <div class="presentation-container">
+        <!-- Slide 1: Title -->
+        <div class="slide title-slide active" id="slide-1">
+            <h1 style="font-size: 4.5rem; margin-bottom: 0;">Synapse Core™</h1>
+            <p
+                style="font-family: 'Orbitron', sans-serif; letter-spacing: 4px; opacity: 0.8; color: var(--accent-purple);">
+                Adaptive Algorithmic Execution Ecosystem</p>
+            <div class="footer-note">PROPRIETARY TRADING TECHNOLOGY // R&D DIVISION</div>
+        </div>
+
+        <!-- Slide 2: Executive Summary -->
+        <div class="slide" id="slide-2">
+            <h2>Executive Summary</h2>
+            <div class="slide-grid">
+                <div>
+                    <p><span class="highlight">Problem:</span> Static algorithms are rigid. They decay when market
+                        regimes shift.</p>
+                    <p><span class="highlight">Solution:</span> Synapse Core is a <strong>living engine</strong>. It
+                        mimics biological plasticity to remain robust.</p>
+                    <ul>
+                        <li>Prunes losing logic instantly.</li>
+                        <li>Strengthens profitable connections.</li>
+                        <li>Predicts <strong>Regime</strong>, not just price.</li>
+                    </ul>
+                </div>
+                <div class="visual-placeholder">
+                    ANIMATION: NEURAL PLASTICITY DIAGRAM
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 3: Core Architecture -->
+        <div class="slide" id="slide-3">
+            <h2>The Synaptic Cluster</h2>
+            <div class="slide-grid">
+                <div>
+                    <p>A decentralized network of <span class="highlight">8 Parallel Nodes</span>.</p>
+                    <ul>
+                        <li>Specialized Trend & Mean Reversion experts.</li>
+                        <li><strong>Weighted Signal Protocol:</strong> Logic competes for dominance.</li>
+                        <li>Automatic transition between "Attack" and "Defend" postures.</li>
+                    </ul>
+                </div>
+                <div class="visual-placeholder">
+                    VISUAL: 8-NODE RADIALLY LINKED HUB
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 4: Connection Strength -->
+        <div class="slide" id="slide-4">
+            <h2>Hebbian Learning Protocols</h2>
+            <p><em>"Neurons that fire together, wire together."</em></p>
+            <ul>
+                <li><strong>Continuous Audit:</strong> Real-time performance tracking of every strategy component.</li>
+                <li><strong>Connection Strength (0-100%):</strong> Biological-style weighting assigned to each Node.
+                </li>
+                <li><strong>Auto-Pruning:</strong> Inefficient logic is loosened instantly without human intervention.
+                </li>
+            </ul>
+        </div>
+
+        <!-- Slide 5: Risk Dampeners -->
+        <div class="slide" id="slide-5">
+            <h2>The Refractory Period</h2>
+            <div class="slide-grid">
+                <div>
+                    <p>Strategic rest filters prevents the system from "over-firing" in low-probability environments.
+                    </p>
+                    <ul>
+                        <li><strong>Fatigue Detection:</strong> Real-time identification of Market Chop and Noise.</li>
+                        <li><strong>Dampeners:</strong> Automatic tightening of stops and reduction in position sizing.
+                        </li>
+                        <li><strong>Capital Preservation:</strong> Only elite confluence triggers activation.</li>
+                    </ul>
+                </div>
+                <div class="visual-placeholder">
+                    VISUAL: CHOP METER vs DAMPENED ENTRY
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 6: Axon-Link -->
+        <div class="slide" id="slide-6">
+            <h2>Axon-Link v3.0 Backbone</h2>
+            <p>Speed is irrelevant without <span class="highlight">Synchronization</span>.</p>
+            <ul>
+                <li><strong>Proprietary Protocol:</strong> Custom-built to bypass retail API bottlenecks and lag.</li>
+                <li><strong>Sub-microsecond Lockstep:</strong> Direct link between the strategy "Brain" and the
+                    execution "Hand."</li>
+                <li><strong>Zero Drift:</strong> Signals across all instances are perfectly multiplexed into a single
+                    digital link.</li>
+            </ul>
+        </div>
+
+        <!-- Slide 7: Roadmap -->
+        <div class="slide" id="slide-7">
+            <h2>Evolution of the Core</h2>
+            <div class="slide-grid">
+                <div style="padding: 20px; border: 1px solid var(--accent-blue); background: rgba(0,229,255,0.05);">
+                    <span class="highlight">PHASE 1: NITRO (Current)</span><br>
+                    1-Second Audit cycles for ultra-high velocity regime detection.
+                </div>
+                <div
+                    style="padding: 20px; border: 1px solid var(--accent-purple); background: rgba(188, 19, 254, 0.05);">
+                    <span class="highlight">PHASE 2: THE CORTEX (Next)</span><br>
+                    Autonomous self-tuning layer requiring zero human parameter input.
+                </div>
+            </div>
+            <p style="margin-top: 30px; text-align: center;"><span class="highlight">PHASE 3: NEURAL
+                    ENSEMBLES</span><br>Linking micro-structure signals with macro-structure trends.</p>
+        </div>
+
+        <!-- Slide 8: Strategic Conclusion -->
+        <div class="slide title-slide" id="slide-8">
+            <h2>The Living Algorithm</h2>
+            <div
+                style="width: 100px; height: 100px; border: 2px solid var(--accent-blue); border-radius: 50%; display: flex; justify-content: center; align-items: center; margin-bottom: 20px; position: relative;">
+                <div
+                    style="width: 20px; height: 20px; background: var(--accent-blue); border-radius: 50%; box-shadow: 0 0 20px var(--accent-blue);">
+                </div>
+                <div
+                    style="position: absolute; top: -5px; left: -5px; width: 110px; height: 110px; border: 1px solid var(--accent-purple); border-radius: 50%; opacity: 0.5;">
+                </div>
+            </div>
+            <p style="font-family: 'Orbitron', sans-serif;">Synapse Core is an evolving asset designed to solve strategy
+                decay.</p>
+            <h1 style="font-size: 2rem; color: var(--accent-purple);">ADAPT OR PERISH.</h1>
+            <div class="footer-note">CONFIDENTIAL R&D BRIEFING // © SYNAPSE CORE</div>
+        </div>
+    </div>
+
+    <div class="controls">
+        <button class="btn" id="prevBtn">PREV</button>
+        <button class="btn" id="nextBtn">NEXT</button>
+    </div>
+
+    <div class="progress-bar" id="progressBar"></div>
+
+    <script>
+        const slides = document.querySelectorAll('.slide');
+        const totalSlides = slides.length;
+        let currentSlide = 0;
+
+        function updateSlide() {
+            slides.forEach((slide, index) => {
+                slide.classList.remove('active', 'prev', 'next');
+                if (index === currentSlide) {
+                    slide.classList.add('active');
+                } else if (index < currentSlide) {
+                    slide.classList.add('prev');
+                } else {
+                    slide.classList.add('next');
+                }
+            });
+
+            const progress = ((currentSlide + 1) / totalSlides) * 100;
+            document.getElementById('progressBar').style.width = progress + '%';
+        }
+
+        document.getElementById('nextBtn').addEventListener('click', () => {
+            if (currentSlide < totalSlides - 1) {
+                currentSlide++;
+                updateSlide();
+            }
+        });
+
+        document.getElementById('prevBtn').addEventListener('click', () => {
+            if (currentSlide > 0) {
+                currentSlide--;
+                updateSlide();
+            }
+        });
+
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowRight' || e.key === ' ') {
+                if (currentSlide < totalSlides - 1) {
+                    currentSlide++;
+                    updateSlide();
+                }
+            } else if (e.key === 'ArrowLeft') {
+                if (currentSlide > 0) {
+                    currentSlide--;
+                    updateSlide();
+                }
+            }
+        });
+
+        // Neural Background Canvas
+        const canvas = document.getElementById('bg-canvas');
+        const ctx = canvas.getContext('2d');
+        let particles = [];
+
+        function initCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+
+        class Particle {
+            constructor() {
+                this.x = Math.random() * canvas.width;
+                this.y = Math.random() * canvas.height;
+                this.vx = (Math.random() - 0.5) * 0.5;
+                this.vy = (Math.random() - 0.5) * 0.5;
+                this.radius = Math.random() * 2;
+            }
+
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+
+                if (this.x < 0 || this.x > canvas.width) this.vx *= -1;
+                if (this.y < 0 || this.y > canvas.height) this.vy *= -1;
+            }
+
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = '#00e5ff';
+                ctx.fill();
+            }
+        }
+
+        function createParticles() {
+            for (let i = 0; i < 100; i++) {
+                particles.push(new Particle());
+            }
+        }
+
+        function animate() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            particles.forEach(p => {
+                p.update();
+                p.draw();
+            });
+
+            // Draw connections
+            for (let i = 0; i < particles.length; i++) {
+                for (let j = i + 1; j < particles.length; j++) {
+                    const dx = particles[i].x - particles[j].x;
+                    const dy = particles[i].y - particles[j].y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+
+                    if (dist < 100) {
+                        ctx.beginPath();
+                        ctx.moveTo(particles[i].x, particles[i].y);
+                        ctx.lineTo(particles[j].x, particles[j].y);
+                        ctx.strokeStyle = `rgba(0, 229, 255, ${1 - dist / 100})`;
+                        ctx.lineWidth = 0.5;
+                        ctx.stroke();
+                    }
+                }
+            }
+            requestAnimationFrame(animate);
+        }
+
+        initCanvas();
+        createParticles();
+        animate();
+        updateSlide();
+
+        window.addEventListener('resize', initCanvas);
+    </script>
+
+</body>
+
+</html>

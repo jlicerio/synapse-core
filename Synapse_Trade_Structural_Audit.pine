@@ -1,0 +1,228 @@
+//@version=6
+indicator("Synapse Trade Structural Audit", overlay=true, max_bars_back=5000)
+
+// =============================================================================
+// 🧠 Synapse TRADE STRUCTURAL AUDIT (Statistical Edition)
+// =============================================================================
+
+// Define Struct at Global Level
+type AnchorPoint
+    int barIdx
+    float entryPrice
+    int direction
+    float sum_pv
+    float sum_v
+    float sum_pv2
+
+// --- INPUTS ---
+group_bus = "1. Synapse Axon-Link"
+srcBus    = input.source(close, "Synapse Hub Source", group=group_bus)
+
+group_audit = "2. Audit Parameters"
+stdLen     = input.int(20, "Lookback for StdDev", minval=5, group=group_audit)
+show_bands = input.bool(true, "Show Deviation Bands (1-4 SD)", group=group_audit)
+// Kernel Regression Inputs
+k_h = input.int(8, "Kernel Lookback (h)", minval=2, group="3. ML Kernel Baseline")
+k_r = input.float(8.0, "Relative Weight (r)", minval=0.1, group="3. ML Kernel Baseline")
+k_x = input.int(25, "Regression Window (x)", minval=10, group="3. ML Kernel Baseline")
+
+// --- DECODER (Axon-Link v3.1) ---
+f_unpack_Axon-Link(wire) =>
+    val = nz(wire) - 100.0
+    bDigit = math.floor(math.abs(val) * 10 + 0.5) % 10
+    _bias = bDigit == 1 ? 1 : bDigit == 2 ? -1 : 0
+    [_bias]
+
+[hBias] = f_unpack_Axon-Link(srcBus)
+
+// --- KERNEL REGRESSION CALCULATION (Global) ---
+float sum_w = 0.0
+float sum_yw = 0.0
+for i = 0 to k_x
+    float d = i
+    // Rational Quadratic Kernel
+    float w = math.pow(1 + (d * d) / (2 * k_r * k_h * k_h), -k_r)
+    sum_w += w
+    sum_yw += w * close[i]
+float kernel_line = sum_yw / sum_w
+plot(kernel_line, "ML Kernel Baseline", color=color.new(color.purple, 20), linewidth=2)
+
+// --- TRADE ANCHOR ENGINE ---
+bool new_trade = ta.change(hBias) != 0 and hBias != 0
+
+var AnchorPoint current = AnchorPoint.new(na, na, 0, 0.0, 0.0, 0.0)
+
+// Statistics Globals
+var float[] ext_pro     = array.new_float(0) // Pro-Trend Extensions
+var float[] ext_counter = array.new_float(0) // Counter-Trend Extensions
+var float[] winner_maes = array.new_float(0) // Cluster D (Safe Dip)
+var float[] loser_mfes  = array.new_float(0) // Cluster F (Fakeouts)
+
+var float max_exp_active = 0.0
+var float max_mfe_sds    = 0.0
+var float min_mae_sds    = 0.0
+
+if new_trade
+    // Archive previous trade set
+    if not na(current.entryPrice)
+        // Determine Win/Loss (Gross)
+        bool is_long = current.direction == 1
+        float exit_price = close[1] 
+        bool is_win = (is_long and exit_price > current.entryPrice) or (not is_long and exit_price < current.entryPrice)
+        
+        // Determine Trend Context of the *Closed* Trade
+        // We use the Kernel value from the previous bar (closest proxy to exit or average hold)
+        // Ideally we'd use entry, but we didn't store it. Using exit context is "good enough" for Audit.
+        bool is_pro = (is_long and current.entryPrice > kernel_line[1]) or (not is_long and current.entryPrice < kernel_line[1])
+
+        if is_win
+            // Winner: We care about how deep it dipped (MAE)
+            if min_mae_sds < 0 // Only record if it actually dipped
+                array.push(winner_maes, min_mae_sds)
+                if array.size(winner_maes) > 10
+                    array.shift(winner_maes)
+            
+            // Track extension based on Context
+            if max_exp_active > 0
+                if is_pro
+                    array.push(ext_pro, max_exp_active)
+                    if array.size(ext_pro) > 5
+                        array.shift(ext_pro)
+                else
+                    array.push(ext_counter, max_exp_active)
+                    if array.size(ext_counter) > 5
+                        array.shift(ext_counter)
+        else
+            // Loser: We care about how high it got before failing (MFE)
+            if max_mfe_sds > 0
+                array.push(loser_mfes, max_mfe_sds)
+                if array.size(loser_mfes) > 10
+                    array.shift(loser_mfes)
+
+    current.barIdx := bar_index
+    current.entryPrice := close
+    current.direction := hBias
+    current.sum_pv := 0.0
+    current.sum_v := 0.0
+    current.sum_pv2 := 0.0
+    max_exp_active := 0.0
+    max_mfe_sds    := 0.0
+    min_mae_sds    := 0.0
+else if not na(current.barIdx)
+    // Update active AVWAP data
+    current.sum_pv += (close * volume)
+    current.sum_pv2 += (math.pow(close, 2) * volume)
+    current.sum_v += volume
+
+float avwap = current.sum_v > 0 ? current.sum_pv / current.sum_v : na
+float avar = current.sum_v > 0 ? math.max(0, (current.sum_pv2 / current.sum_v) - math.pow(avwap, 2)) : 0.0
+float asd = math.sqrt(avar)
+
+// --- PLOTTING (Heatmap) ---
+avg_col = current.direction == 1 ? color.new(color.lime, 40) : color.new(color.red, 40)
+plot(avwap, "Trade AVWAP", color=avg_col, linewidth=2, style=plot.style_linebr)
+
+show_plots = show_bands and not na(asd) and not na(avwap)
+
+// 1 SD (Ride Zone)
+p1u = plot(show_plots ? avwap + asd : na, "SD +1", color=color.new(color.gray, 60), style=plot.style_linebr)
+p1d = plot(show_plots ? avwap - asd : na, "SD -1", color=color.new(color.gray, 60), style=plot.style_linebr)
+
+// 2 SD (Extension)
+p2u = plot(show_plots ? avwap + asd * 2 : na, "SD +2", color=color.new(color.blue, 60), style=plot.style_linebr)
+p2d = plot(show_plots ? avwap - asd * 2 : na, "SD -2", color=color.new(color.blue, 60), style=plot.style_linebr)
+
+// 3 SD (Target Zone)
+p3u = plot(show_plots ? avwap + asd * 3 : na, "SD +3", color=color.new(color.orange, 50), style=plot.style_linebr)
+p3d = plot(show_plots ? avwap - asd * 3 : na, "SD -3", color=color.new(color.orange, 50), style=plot.style_linebr)
+
+// 4 SD (Anomaly Zone)
+p4u = plot(show_plots ? avwap + asd * 4 : na, "SD +4", color=color.new(color.red, 40), linewidth=2, style=plot.style_linebr)
+p4d = plot(show_plots ? avwap - asd * 4 : na, "SD -4", color=color.new(color.red, 40), linewidth=2, style=plot.style_linebr)
+
+fill(p1u, p2u, color.new(color.blue, 90), "Fill 1-2")
+fill(p2u, p3u, color.new(color.orange, 85), "Fill 2-3")
+fill(p3u, p4u, color.new(color.red, 80), "Fill 3-4")
+
+// --- STATISTICS ENGINE (Part 1: Active) ---
+// ...
+
+// --- STATISTICS ENGINE ---
+float current_expansion = not na(asd) and asd > 0 and not na(avwap) ? math.abs(close - avwap) / asd : 0.0
+float raw_dist = close - current.entryPrice
+float signed_dist = current.direction == 1 ? raw_dist : -raw_dist
+float signed_sd = not na(asd) and asd > 0 ? signed_dist / asd : 0.0
+
+if not na(current.barIdx)
+    max_exp_active := math.max(max_exp_active, current_expansion)
+    max_mfe_sds    := math.max(max_mfe_sds, signed_sd)
+    min_mae_sds    := math.min(min_mae_sds, signed_sd)
+
+// Calc Context Stats
+float avg_reach = array.size(ext_pro) > 0 ? array.avg(ext_pro) : 0.0 // Fallback
+float last_1 = array.size(ext_pro) > 0 ? array.get(ext_pro, array.size(ext_pro) - 1) : 0.0
+float last_2 = array.size(ext_pro) > 1 ? array.get(ext_pro, array.size(ext_pro) - 2) : 0.0
+float last_3 = array.size(ext_pro) > 2 ? array.get(ext_pro, array.size(ext_pro) - 3) : 0.0
+
+float avg_pro_reach = array.size(ext_pro) > 0 ? array.avg(ext_pro) : 0.0
+float avg_cnt_reach = array.size(ext_counter) > 0 ? array.avg(ext_counter) : 0.0
+
+float cluster_D_safe   = array.size(winner_maes) > 0 ? array.avg(winner_maes) : 0.0
+float cluster_F_fake   = array.size(loser_mfes) > 0 ? array.avg(loser_mfes) : 0.0
+
+// Active Context (Live)
+bool is_bull = close > kernel_line
+bool context_pro = (hBias == 1 and is_bull) or (hBias == -1 and not is_bull)
+float active_target = context_pro ? avg_pro_reach : avg_cnt_reach
+
+// --- BACKFILL HISTORICAL CONTEXT ---
+// We pushed the historical update logic up, but the Kernel was calc'd down here.
+// To fix the "is_pro" check in the 'new_trade' block, we need to know the Kernel value at that time.
+// Since 'kernel_line' is a series, we can access 'kernel_line[1]'.
+// Let's duplicate the 'new_trade' context check here or move the 'new_trade' block down?
+// Moving 'new_trade' block down is risky for variable scope.
+// Accessing 'kernel_line[1]' inside the top block works IF 'kernel_line' is defined above it.
+// SOLUTION: We will define 'kernel_line' BEFORE the 'new_trade' block.
+
+// --- HUD ---
+var table hud = table.new(position.top_right, 2, 14, bgcolor=color.new(color.black, 40), border_width=1)
+if barstate.islast
+    table.cell(hud, 0, 0, "STRUCTURAL AUDIT (FORENSIC)", text_color=color.aqua)
+    
+    // Trend Context
+    table.cell(hud, 0, 1, "Context (ML Kernel)", text_color=color.white)
+    table.cell(hud, 1, 1, is_bull ? "BULLISH" : "BEARISH", text_color=is_bull ? color.lime : color.red)
+
+    // Live Stats
+    table.cell(hud, 0, 2, "Current Deviation", text_color=color.white)
+    table.cell(hud, 1, 2, str.tostring(current_expansion, "0.00") + "σ", text_color=current_expansion > 3.0 ? color.red : (current_expansion > 2.0 ? color.orange : color.lime))
+    
+    table.cell(hud, 0, 3, "Peak This Trade", text_color=color.white)
+    table.cell(hud, 1, 3, str.tostring(max_exp_active, "0.00") + "σ", text_color=color.yellow)
+
+    // Context-Aware Targets
+    table.cell(hud, 0, 4, "PRO TARGET (Trend)", text_color=color.white, bgcolor=color.new(color.green, 60))
+    table.cell(hud, 1, 4, str.tostring(avg_pro_reach, "0.00") + "σ", text_color=color.white, bgcolor=color.new(color.green, 60))
+
+    table.cell(hud, 0, 5, "CNTR TARGET (Fade)", text_color=color.white, bgcolor=color.new(color.orange, 60))
+    table.cell(hud, 1, 5, str.tostring(avg_cnt_reach, "0.00") + "σ", text_color=color.white, bgcolor=color.new(color.orange, 60))
+    
+    // Recommendation
+    table.cell(hud, 0, 6, "REC. TARGET", text_color=color.lime, bgcolor=color.new(color.lime, 80))
+    table.cell(hud, 1, 6, str.tostring(active_target, "0.00") + "σ", text_color=color.black, bgcolor=color.new(color.lime, 80))
+
+    // Forensic Analysis (Losers/Risk)
+    table.cell(hud, 1, 7, str.tostring(cluster_D_safe - 0.2, "0.0") + "σ", text_color=color.white, bgcolor=color.new(color.red, 80))
+
+    table.cell(hud, 0, 8, "CLUSTER F (Fakeout)", text_color=color.white, bgcolor=color.new(#500050, 60)) // Purple
+    table.cell(hud, 1, 8, str.tostring(cluster_F_fake, "0.00") + "σ", text_color=color.white, bgcolor=color.new(#500050, 60))
+
+    table.cell(hud, 0, 9, "Stall Exit (F)", text_color=color.orange, bgcolor=color.new(#804000, 80))
+    table.cell(hud, 1, 9, "> " + str.tostring(cluster_F_fake, "0.00") + "σ", text_color=color.white, bgcolor=color.new(#804000, 80))
+
+    // Recent History
+    table.cell(hud, 0, 5, "2nd Last Reach", text_color=color.gray)
+    table.cell(hud, 1, 5, str.tostring(last_2, "0.00") + "σ", text_color=color.silver)
+
+    table.cell(hud, 0, 6, "3rd Last Reach", text_color=color.gray)
+    table.cell(hud, 1, 6, str.tostring(last_3, "0.00") + "σ", text_color=color.silver)

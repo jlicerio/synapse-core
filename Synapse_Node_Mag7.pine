@@ -1,0 +1,130 @@
+//@version=6
+indicator("Synapse Sub-Hub: Mag 7 Correlations [Slot H]", overlay=false)
+
+// =============================================================================
+// 🌌 Synapse SUB-HUB: MAG 7 CORRELATIONS (Macro-Flow Node)
+// =============================================================================
+// Tracks the "Magnificent 7" (AAPL, MSFT, GOOGL, AMZN, NVDA, META, TSLA).
+// Calculates Net Volume Flow and Relative Strength to determine Macro Sentiment.
+// Outputs to Synapse Bus 100.PH (Slot H).
+// =============================================================================
+
+// --- INPUTS ---
+group_tickers = "1. The Magnificent 7"
+t1 = input.symbol("AAPL", "Ticker 1", group=group_tickers)
+t2 = input.symbol("MSFT", "Ticker 2", group=group_tickers)
+t3 = input.symbol("GOOGL", "Ticker 3", group=group_tickers)
+t4 = input.symbol("AMZN", "Ticker 4", group=group_tickers)
+t5 = input.symbol("NVDA", "Ticker 5 (King)", group=group_tickers)
+t6 = input.symbol("META", "Ticker 6", group=group_tickers)
+t7 = input.symbol("TSLA", "Ticker 7 (Gamma)", group=group_tickers)
+
+group_settings = "2. Calculation Settings"
+calc_mode  = input.string("Momentum Intensity", "Calculation Mode", options=["Relative Strength", "Momentum Intensity", "Combined"], group=group_settings)
+smooth_len = input.int(3, "Smoothing Length", minval=1, group=group_settings)
+threshold  = input.float(0.5, "Bias Threshold (%)", minval=0.1, step=0.1, group=group_settings)
+
+// --- DATA FETCHING ---
+f_get_data(_sym) =>
+    [c, o, v, vwap_] = request.security(_sym, timeframe.period, [close, open, volume, ta.vwap], ignore_invalid_symbol=true)
+    [c, o, v, vwap_]
+
+[c1, o1, v1, vw1] = f_get_data(t1)
+[c2, o2, v2, vw2] = f_get_data(t2)
+[c3, o3, v3, vw3] = f_get_data(t3)
+[c4, o4, v4, vw4] = f_get_data(t4)
+[c5, o5, v5, vw5] = f_get_data(t5)
+[c6, o6, v6, vw6] = f_get_data(t6)
+[c7, o7, v7, vw7] = f_get_data(t7)
+
+// --- CALCULATION ENGINE ---
+
+// 1. Relative Strength % (Current Close vs Session VWAP)
+f_rs(_close, _vwap) =>
+    not na(_close) and not na(_vwap) and _vwap > 0 ? ((_close - _vwap) / _vwap) * 100 : 0.0
+
+rs1 = f_rs(c1, vw1), rs2 = f_rs(c2, vw2), rs3 = f_rs(c3, vw3), rs4 = f_rs(c4, vw4), rs5 = f_rs(c5, vw5), rs6 = f_rs(c6, vw6), rs7 = f_rs(c7, vw7)
+
+// 2. Momentum Intensity (Volatility-Adjusted ROC)
+f_mom_int(_c) =>
+    if na(_c)
+        0
+    else
+        _roc = ta.roc(_c, 3)
+        _std = ta.stdev(_roc, 20)
+        _roc > _std ? 1 : (_roc < -_std ? -1 : 0)
+
+mi1 = f_mom_int(c1), mi2 = f_mom_int(c2), mi3 = f_mom_int(c3), mi4 = f_mom_int(c4), mi5 = f_mom_int(c5), mi6 = f_mom_int(c6), mi7 = f_mom_int(c7)
+
+// Aggregation
+mag_rs_raw = (rs1 + rs2 + rs3 + rs4 + rs5 + rs6 + rs7) / 7.0
+mag_rs_smooth = ta.ema(mag_rs_raw, smooth_len)
+
+// Momentum Cluster Score (-7 to +7)
+mom_score = mi1 + mi2 + mi3 + mi4 + mi5 + mi6 + mi7
+
+// --- BIAS GENERATION ---
+float final_metric = 0.0
+if calc_mode == "Relative Strength"
+    final_metric := mag_rs_smooth
+else if calc_mode == "Momentum Intensity"
+    final_metric := mom_score / 2.0 // Scaled for visual alignment
+else 
+    // Combined: RS direction validated by Momentum
+    final_metric := mag_rs_smooth + (mom_score * 0.1)
+
+// Determine Synapse Bias (-1, 0, 1)
+int m_bias = 0
+if calc_mode == "Relative Strength" or calc_mode == "Combined"
+    if final_metric > threshold
+        m_bias := 1
+    else if final_metric < -threshold
+        m_bias := -1
+else 
+    // Flow Mode
+    if final_metric >= 3
+        m_bias := 1
+    else if final_metric <= -3
+        m_bias := -1
+
+// --- PLOTTING ---
+plot(mag_rs_smooth, "Mag 7 RS%", color=mag_rs_smooth > 0 ? color.aqua : color.fuchsia, linewidth=2)
+plot(mom_score, "Momentum Cluster Score", color=mom_score > 0 ? color.lime : color.red, style=plot.style_columns, display=display.pane)
+plot(0, "Zero", color=color.gray)
+bgcolor(m_bias == 1 ? color.new(color.green, 90) : m_bias == -1 ? color.new(color.red, 90) : na)
+
+// --- Synapse Axon-Link ENCODER (Slot H) ---
+// Protocol: 200. [Bias] [Pulse] [Conf]
+// Bias: 1=Long, 2=Short, 0=Neutral
+// Pulse: 0-9 (Heartbeat)
+// Conf: 0.0-9.9 (Confidence)
+
+// Confidence based on Magnitude
+float conf_raw = math.abs(final_metric) / threshold // 1.0 = threshold hit
+float bus_conf = math.min(conf_raw * 5.0, 9.9) // Scale up, cap at 9.9
+
+float b_val = m_bias == 1 ? 100.0 : (m_bias == -1 ? 200.0 : 0.0) // Bias Digits
+float p_val = 10.0 // Pulse (Static 1 for now)
+float c_val = bus_conf / 10.0 // encoded as 0.X
+
+// Axon-Link v3.1 Encoding
+// Wire schema: 200 + (BiasDigit * 0.1) + ...? 
+// Wait, Axon-Link v3.0 standard in Master Hub:
+// f_decode_universal(wire) => val = wire - 200.0
+// _bias = floor(val * 100 + 0.5) % 10 (2nd decimal)
+// NO. Let's check Master Hub decoder.
+// Master Hub: val = wire - 200.0
+// _pulse = floor(val * 10) % 10   (1st decimal)
+// _bias  = floor(val * 100) % 10  (2nd decimal)
+// _conf  = floor(val * 100000) ...
+
+// Let's use the Function Standard if possible, or manual encode matching Hub.
+// Target: 200.PB...
+// P (Pulse) = 1st decimal
+// B (Bias)  = 2nd decimal (1=Long, 2=Short)
+
+float enc_bias = m_bias == 1 ? 1.0 : (m_bias == -1 ? 2.0 : 0.0)
+float enc_pulse = timenow % 2 == 0 ? 1.0 : 0.0 // Toggle heartbeat
+float wire_out = 200.0 + (enc_pulse * 0.1) + (enc_bias * 0.01)
+
+plot(wire_out, "Synapse Bus (Slot H)", color=color.blue, display=display.status_line)

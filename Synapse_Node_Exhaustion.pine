@@ -1,0 +1,74 @@
+//@version=6
+indicator("Synapse Sub-Hub: Nitro-Exhaustion [Slot E]", overlay=false)
+
+// =============================================================================
+// 🌌 Synapse SUB-HUB: NITRO-EXHAUSTION (Fatigue Node)
+// =============================================================================
+// Purpose: Protect profits by detecting trend fatigue via 5s Acceleration.
+// Outputs to Synapse Bus 200.PB (Slot E).
+// =============================================================================
+
+// --- 1. CONFIGURATION ---
+group_ex = "1. Fatigue Sensitivity"
+vol_sigma = input.float(2.0, "Exhaustion Sigma", minval=0.5, step=0.1, group=group_ex)
+lookback  = input.int(20, "Hysteresis Lookback", minval=5, group=group_ex)
+
+// --- 2. 5S LTF SCANNER ---
+// Fetch True LTF Data (5s sub-bars)
+[ltf_c] = request.security_lower_tf(syminfo.tickerid, "5S", [close])
+
+f_fatigue_scan(_c_array, _sigma) =>
+    float _avg_vel = 0.0
+    float _avg_acc = 0.0
+    int _fatigue_count = 0
+    bool _exhaust_bull = false
+    bool _exhaust_bear = false
+    
+    if array.size(_c_array) >= 4
+        // Calculate Velocity and Acceleration clusters
+        float[] vels = array.new_float(0)
+        float[] accs = array.new_float(0)
+        
+        for i = 1 to array.size(_c_array) - 1
+            array.push(vels, array.get(_c_array, i) - array.get(_c_array, i-1))
+        
+        for j = 1 to array.size(vels) - 1
+            array.push(accs, array.get(vels, j) - array.get(vels, j-1))
+            
+        _last_v = array.get(vels, array.size(vels) - 1)
+        _last_a = array.get(accs, array.size(accs) - 1)
+        
+        // Exhaustion logic: Price moving, but acceleration dying
+        // Bullish Exhaustion: Last sub-bars show Price > Prev Price but Acceleration < 0
+        if _last_v > 0 and _last_a < 0
+            _fatigue_count := 1
+        else if _last_v < 0 and _last_a > 0
+            _fatigue_count := -1
+            
+    [_fatigue_count]
+
+[f_score] = f_fatigue_scan(ltf_c, vol_sigma)
+
+// --- 3. BIAS GENERATION ---
+// Bias logic based on fatigue clusters
+int m_bias = 0
+if f_score == 1
+    m_bias := -1 // Bullish Exhaustion -> Bearish Bias (Protection)
+else if f_score == -1
+    m_bias := 1  // Bearish Exhaustion -> Bullish Bias (Protection)
+
+// --- 4. PLOTTING & HUD ---
+plot(f_score, "Exhaustion Intensity", color=f_score > 0 ? color.red : (f_score < 0 ? color.green : color.gray), style=plot.style_columns)
+plot(0, "Zero Line", color=color.gray)
+
+var table hud = table.new(position.bottom_right, 2, 2, bgcolor=color.new(color.black, 70))
+if barstate.islast
+    table.cell(hud, 0, 0, "NITRO EXHAUST (5S)", text_color=color.aqua)
+    table.cell(hud, 1, 0, m_bias == -1 ? "OVERBOUGHT" : (m_bias == 1 ? "OVERSOLD" : "BALANCED"), text_color=m_bias == -1 ? color.red : (m_bias == 1 ? color.green : color.gray))
+
+// --- 5. Synapse Axon-Link (Slot E) ---
+float p_digit = math.abs(f_score) > 0 ? 1.0 : 0.0
+float b_digit = m_bias == 1 ? 1.0 : (m_bias == -1 ? 2.0 : 0.0)
+float wire_out = 200.0 + (p_digit * 0.1) + (b_digit * 0.01)
+
+plot(wire_out, "Synapse Bus (Slot E)", color=color.orange, display=display.status_line)

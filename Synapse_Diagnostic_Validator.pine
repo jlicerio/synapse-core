@@ -1,0 +1,87 @@
+//@version=6
+indicator("Synapse Diagnostic: Signal Validator [Axon-Link v3.0]", overlay=false)
+
+// =============================================================================
+// Synapse DIAGNOSTIC: SIGNAL VALIDATOR
+// Use this to verify that Sub-Hubs (like QuantVue) are communicating correctly.
+// =================================############################################
+
+group_test = "🔍 Diagnostic Input"
+srcBus  = input.source(close, "Axon-Link Bus to Validate", tooltip="Link to a Sub-Hub (200.PB) or Master Hub (100.PB) output.")
+busType = input.string("Sub-Hub (200.PB)", "Bus Type", options=["Sub-Hub (200.PB)", "Master Hub (100.PB)"], group=group_test)
+
+// --- Axon-Link v3.0 DECODER ENGINE ---
+f_decode_200(wire) =>
+    val = nz(wire) - 200.0
+    active = val >= 0 and val < 1.0
+    _pulse = active ? int(math.floor(val * 10 + 0.5) % 10) : 0
+    _bias  = active ? int(math.floor(val * 100 + 0.5) % 10) : 0
+    _conf  = active ? (math.floor(val * 100000 + 0.5) % 1000) / 10.0 : 0.0 
+    [_bias == 1 ? "BULL" : (_bias == 2 ? "BEAR" : "NEUTRAL"), _pulse, _conf, active]
+
+f_decode_100(wire) =>
+    val = nz(wire) - 100.0
+    active = val >= 0 and val < 10.0
+    _bDigit = active ? int(math.floor(math.abs(val) * 10 + 0.5) % 10) : 0
+    _rDigit = active ? int(math.floor(math.abs(val) * 100 + 0.5) % 10) : 0
+    _rrDigit = active ? int(math.floor(math.abs(val) * 1000 + 0.5) % 10) : 0
+    _straddle = active ? int(math.floor(math.abs(val) * 10000000 + 0.5) % 10) : 0
+    _combo = active ? int(math.floor(math.abs(val) * 1000000000 + 0.5) % 512) : 0
+    
+    _rrStr = _rrDigit == 4 ? "2.5x" : (_rrDigit == 3 ? "1.8x" : (_rrDigit == 2 ? "1.5x" : "1.2x"))
+    _resStr = _rDigit == 1 ? "ELITE" : (_rDigit == 2 ? "DAMPEN" : "NORM")
+    
+    [_bDigit == 1 ? "LONG" : (_bDigit == 2 ? "SHORT" : "WAIT"), _straddle == 1, _combo, _rrStr, _resStr, active]
+
+// Process Stream
+string biasStr = "N/A"
+float  pulseVal = 0.0
+float  confVal  = 0.0
+bool   isActive = false
+bool   isStraddle = false
+int    comboID = 0
+
+string rrStr = "N/A"
+string resStr = "N/A"
+
+if busType == "Sub-Hub (200.PB)"
+    [b, p, c, a] = f_decode_200(srcBus)
+    biasStr := b, pulseVal := float(p), confVal := c, isActive := a
+else
+    [b, s, cID, rr, rs, a] = f_decode_100(srcBus)
+    biasStr := b, isStraddle := s, comboID := cID, rrStr := rr, resStr := rs, isActive := a
+
+// --- VISUAL VALIDATION ---
+plot(busType == "Sub-Hub (200.PB)" ? confVal : comboID, "Metric Column", color=color.aqua, style=plot.style_columns, histbase=0)
+plot(busType == "Sub-Hub (200.PB)" ? pulseVal * 10 : (isStraddle ? 100 : 0), "Secondary Metric", color=color.yellow, linewidth=2)
+
+// --- VALIDATION HUD ---
+var table log = table.new(position.middle_right, 2, 8, bgcolor=color.new(color.black, 20), border_width=1, border_color=color.gray)
+if barstate.islast
+    table.cell(log, 0, 0, "Axon-Link VALIDATOR", text_color=color.white)
+    table.cell(log, 1, 0, isActive ? "✅ ONLINE" : "❌ NO DATA", text_color=isActive ? color.lime : color.red)
+    
+    table.cell(log, 0, 1, "RAW VALUE", text_color=color.silver)
+    table.cell(log, 1, 1, str.tostring(srcBus, "#.#########"), text_color=color.white)
+    
+    table.cell(log, 0, 2, "DECODED BIAS", text_color=color.silver)
+    table.cell(log, 1, 2, biasStr, text_color=biasStr == "BULL" or biasStr == "LONG" ? color.lime : (biasStr == "BEAR" or biasStr == "SHORT" ? color.red : color.gray))
+    
+    if busType == "Sub-Hub (200.PB)"
+        table.cell(log, 0, 3, "DECODED PULSE", text_color=color.silver)
+        table.cell(log, 1, 3, str.tostring(pulseVal), text_color=color.yellow)
+        table.cell(log, 0, 4, "DECODED CONF", text_color=color.silver)
+        table.cell(log, 1, 4, str.tostring(confVal, "0.0") + "%", text_color=color.aqua)
+    else
+        table.cell(log, 0, 3, "STRADDLE BIT", text_color=color.silver)
+        table.cell(log, 1, 3, isStraddle ? "ACTIVE" : "OFF", text_color=isStraddle ? color.aqua : color.gray)
+        table.cell(log, 0, 4, "COMBO ID", text_color=color.silver)
+        table.cell(log, 1, 4, str.tostring(comboID), text_color=color.orange)
+        table.cell(log, 0, 5, "DECODED RR", text_color=color.silver)
+        table.cell(log, 1, 5, rrStr, text_color=color.white)
+        table.cell(log, 0, 6, "RESONANCE", text_color=color.silver)
+        table.cell(log, 1, 6, resStr, text_color=resStr == "ELITE" ? color.lime : (resStr == "DAMPEN" ? color.red : color.gray))
+
+// Test Alerts
+if biasStr != biasStr[1]
+    alert("Axon-Link Test: Bias shifted to " + biasStr, alert.freq_once_per_bar)

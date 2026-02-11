@@ -1,0 +1,102 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Selfsimilarity
+
+//@version=6
+indicator("Bayesian Efficacy Monitor [Synapse Suite]", overlay=true)
+
+// =============================================================================
+// INPUTS
+// =============================================================================
+g_slotA = "Slot A: Efficacy Monitoring"
+srcA_Long  = input.source(close, "Slot A: Long Pulse", group=g_slotA)
+srcA_Short = input.source(close, "Slot A: Short Pulse", group=g_slotA)
+
+g_slotB = "Slot B: Efficacy Monitoring"
+srcB_Long  = input.source(close, "Slot B: Long Pulse", group=g_slotB)
+srcB_Short = input.source(close, "Slot B: Short Pulse", group=g_slotB)
+
+g_slotC = "Slot C: Efficacy Monitoring"
+srcC_Long  = input.source(close, "Slot C: Long Pulse", group=g_slotC)
+srcC_Short = input.source(close, "Slot C: Short Pulse", group=g_slotC)
+
+g_settings = "Efficacy Engine Settings"
+evalWindow = input.int(10, "Evaluation Window (Signals)", minval=5, group=g_settings, tooltip="Number of historical outcomes to remember.")
+proxyTP = input.float(1.5, "Proxy TP (ATR Multiplier)", step=0.1, group=g_settings)
+proxySL = input.float(1.0, "Proxy SL (ATR Multiplier)", step=0.1, group=g_settings)
+
+// =============================================================================
+// ENGINE: PROXY OUTCOME TRACKER
+// =============================================================================
+// Encapsulated logic to track signal efficacy using a rolling outcome array.
+
+type EfficacyState
+    float   entryPrice = na
+    int     direction  = 0
+    float[] outcomes   // Array of 1.0 (win) or 0.0 (loss)
+
+get_trust_multiplier(longPulse, shortPulse, tpMult, slMult, windowSize, state) =>
+    atr = ta.atr(14)
+    
+    // 1. Detect Entry
+    if (longPulse > 0 or shortPulse > 0) and na(state.entryPrice)
+        state.entryPrice := close
+        state.direction  := longPulse > 0 ? 1 : -1
+        
+    // 2. Monitor Exit
+    if not na(state.entryPrice)
+        tpLevel = state.direction == 1 ? state.entryPrice + (atr * tpMult) : state.entryPrice - (atr * tpMult)
+        slLevel = state.direction == 1 ? state.entryPrice - (atr * slMult) : state.entryPrice + (atr * slMult)
+        
+        hitTP = state.direction == 1 ? high >= tpLevel : low <= tpLevel
+        hitSL = state.direction == 1 ? low <= slLevel : high >= slLevel
+        
+        if hitTP or hitSL
+            array.push(state.outcomes, hitTP ? 1.0 : 0.0)
+            if array.size(state.outcomes) > windowSize
+                array.shift(state.outcomes)
+            state.entryPrice := na
+            
+    // 3. Calculate Weight (Bayesian Logic)
+    winRate = array.size(state.outcomes) > 0 ? array.avg(state.outcomes) * 100 : 50.0
+    trustMultiplier = math.min(math.max(winRate / 50.0, 0.2), 1.8) // Range: 0.2x to 1.8x
+    [winRate, trustMultiplier]
+
+// Initialize States
+var stateA = EfficacyState.new(na, 0, array.new_float(0))
+var stateB = EfficacyState.new(na, 0, array.new_float(0))
+var stateC = EfficacyState.new(na, 0, array.new_float(0))
+
+[winA, trustA] = get_trust_multiplier(srcA_Long, srcA_Short, proxyTP, proxySL, evalWindow, stateA)
+[winB, trustB] = get_trust_multiplier(srcB_Long, srcB_Short, proxyTP, proxySL, evalWindow, stateB)
+[winC, trustC] = get_trust_multiplier(srcC_Long, srcC_Short, proxyTP, proxySL, evalWindow, stateC)
+
+// =============================================================================
+// OUTPUTS
+// =============================================================================
+plot(winA, "Slot A WinRate (%)", display=display.none)
+plot(trustA, "Slot A Trust Multiplier", display=display.none)
+
+plot(winB, "Slot B WinRate (%)", display=display.none)
+plot(trustB, "Slot B Trust Multiplier", display=display.none)
+
+plot(winC, "Slot C WinRate (%)", display=display.none)
+plot(trustC, "Slot C Trust Multiplier", display=display.none)
+
+// Dashboard Vis
+var table tab = table.new(position.bottom_right, 3, 4, bgcolor=color.new(color.black, 40), frame_color=color.gray, border_width=1)
+if barstate.islast
+    table.cell(tab, 0, 0, "Synapse EFFICACY", text_color=color.silver, text_size=size.small)
+    table.cell(tab, 1, 0, "WIN RATE", text_color=color.silver, text_size=size.small)
+    table.cell(tab, 2, 0, "TRUST", text_color=color.silver, text_size=size.small)
+    
+    table.cell(tab, 0, 1, "A: Structural", text_color=color.white)
+    table.cell(tab, 1, 1, str.tostring(winA, "0.0") + "%", text_color=winA >= 50 ? color.green : color.red)
+    table.cell(tab, 2, 1, str.tostring(trustA, "0.00") + "x", text_color=trustA >= 1.0 ? color.lime : color.orange)
+
+    table.cell(tab, 0, 2, "B: Statistical", text_color=color.white)
+    table.cell(tab, 1, 2, str.tostring(winB, "0.0") + "%", text_color=winB >= 50 ? color.green : color.red)
+    table.cell(tab, 2, 2, str.tostring(trustB, "0.00") + "x", text_color=trustB >= 1.0 ? color.lime : color.orange)
+
+    table.cell(tab, 0, 3, "C: Microflow", text_color=color.white)
+    table.cell(tab, 1, 3, str.tostring(winC, "0.0") + "%", text_color=winC >= 50 ? color.green : color.red)
+    table.cell(tab, 2, 3, str.tostring(trustC, "0.00") + "x", text_color=trustC >= 1.0 ? color.lime : color.orange)

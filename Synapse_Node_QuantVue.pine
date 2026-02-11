@@ -1,0 +1,241 @@
+//@version=6
+indicator("Synapse Sub-Hub: QuantVue Universal Summary [10-Node]", overlay=true, max_boxes_count=100, max_lines_count=100)
+
+// =============================================================================
+// Synapse SUB-HUB: QUANTVUE UNIVERSAL SUMMARY (Tier-1 Aesthetic Architecture)
+// =============================================================================
+// Replicates the QuantVue institutional toolkit within the Synapse Axon-Link ecosystem.
+// Implements 10 distinct confluence nodes with Bayesian Efficacy Auditing.
+// =============================================================================
+
+import Selfsimilarity/selfsimilarty/1 as Synapse
+
+// --- 1. CONFIGURATION: QUANTVUE ECOSYSTEM ---
+group_setup = "📡 Synapse-QuantVue Integration"
+Axon-Link_slot    = input.string("Slot E", "Axon-Link Output Slot", options=["Slot A", "Slot B", "Slot C", "Slot D", "Slot E"], group=group_setup)
+hud_size    = input.string("Small", "HUD Size", options=["Small", "Normal", "Large"], group=group_setup)
+use_alerts  = input.bool(true, "Enable Confluence Alerts", group=group_setup)
+
+group_sim = "🧪 Stress Test / Simulation Mode"
+sim_mode  = input.bool(false, "Enable Simulation Mode", group=group_sim, tooltip="Overrides real data with simulated regimes for logic verification.")
+sim_vol   = input.string("High Vol", "Simulated Regime", options=["High Vol", "Low Vol (Squeeze)", "Trend Shift", "Mean Reversion", "Extreme Consensus"], group=group_sim)
+
+group1 = "1. Momentum & Trend (Moneyball/Qcloud/Qline)"
+use_moneyball = input.bool(true, "Moneyball (Smoothed ROC)", group=group1)
+use_qcloud    = input.bool(true, "Qcloud (Step-MA)", group=group1)
+use_qline     = input.bool(true, "Qline (ATR Ribbons)", group=group1)
+
+group2 = "2. Structure & SMC (Qsmc/The Strat)"
+use_qsmc      = input.bool(true, "Qsmc (Order Blocks/FVG/MSS)", group=group2)
+use_strat     = input.bool(true, "The Strat HTF (Structural Shifts)", group=group2)
+
+group3 = "3. Volatility & Breakout (Qwave/Qrenko)"
+use_qwave     = input.bool(true, "Qwave (Trend-Vol Bands)", group=group3)
+use_qrenko    = input.bool(true, "Virtual Qrenko (Smoothing)", group=group3)
+
+group4 = "4. Cycles & Pullbacks (RS Cycles/Qgrid)"
+use_rs_cycles = input.bool(true, "RS Cycles (Relative Strength)", group=group4)
+use_qgrid     = input.bool(true, "Qgrid (Mean-Rev Pullbacks)", group=group4)
+
+// --- 2. LOGIC ENGINES: REPLICATING QUANTVUE ---
+
+// [A] Moneyball (Smoothed ROC / Two-Pole Filter)
+f_moneyball(_len, _smooth) =>
+    roc = ta.roc(close, _len)
+    smoothed = ta.ema(roc, _smooth)
+    bias = smoothed > 0 ? 1.0 : -1.0
+    [bias, smoothed]
+
+// [B] Qcloud (Step-MA ATR Threshold)
+f_qcloud(_len, _mult) =>
+    atr = ta.atr(_len)
+    var float step_ma = close
+    if math.abs(close - step_ma) > atr * _mult
+        step_ma := close
+    bias = close > step_ma ? 1.0 : -1.0
+    [bias, step_ma]
+
+// [C] Qline (ATR Ribbons)
+f_qline(_len, _mult) =>
+    [st, dir] = ta.supertrend(_mult, _len)
+    bias = dir < 0 ? 1.0 : -1.0
+    [bias, st]
+
+// [D] Qsmc (Simplified SMC: Order Blocks)
+f_qsmc() =>
+    is_ob_bull = low[1] > low and close > high[1] // Simple Bullish OB
+    is_ob_bear = high[1] < high and close < low[1] // Simple Bearish OB
+    var float ob_bias = 0.0
+    if is_ob_bull
+        ob_bias := 1.0
+    else if is_ob_bear
+        ob_bias := -1.0
+    ob_bias
+
+// [E] Qwave (Bollinger + Volatility Filter)
+f_qwave(_len, _mult) =>
+    [mid, upper, lower] = ta.bb(close, _len, _mult)
+    vol_filter = volume > ta.sma(volume, 50)
+    bias = close > mid and vol_filter ? 1.0 : (close < mid and vol_filter ? -1.0 : 0.0)
+    [bias, upper, lower]
+
+// [F] Qrenko (Virtual Renko Logic)
+f_qrenko(_atr_len) =>
+    brick_size = ta.atr(_atr_len)
+    var float renko_price = close
+    if close > renko_price + brick_size
+        renko_price := renko_price + brick_size
+    else if close < renko_price - brick_size
+        renko_price := renko_price - brick_size
+    bias = close > renko_price ? 1.0 : -1.0
+    bias
+
+// [G] RS Cycles (Beta-Adjusted Performance)
+f_rs_cycles() =>
+    // Using NQ1! / ES1! or SPY as proxy
+    spy_close = request.security("SPY", timeframe.period, close)
+    rs = close / spy_close
+    rs_sma = ta.sma(rs, 50)
+    rs_roc = ta.roc(rs, 10)
+    bias = rs > rs_sma and rs_roc > 0 ? 1.0 : (rs < rs_sma and rs_roc < 0 ? -1.0 : 0.0)
+    bias
+
+// [H] Qgrid (Mean Reversion Pullbacks)
+f_qgrid(_len) =>
+    rsi = ta.rsi(close, _len)
+    trend = ta.sma(close, 200)
+    is_long_pb = close > trend and rsi < 35
+    is_short_pb = close < trend and rsi > 65
+    bias = is_long_pb ? 1.0 : (is_short_pb ? -1.0 : 0.0)
+    bias
+
+// [I] The Strat HTF (2-2 Continuations)
+f_strat() =>
+    htf_high = request.security(syminfo.tickerid, "D", high)
+    htf_low  = request.security(syminfo.tickerid, "D", low)
+    htf_close = request.security(syminfo.tickerid, "D", close)
+    is_up = htf_close > htf_high[1]
+    is_down = htf_close < htf_low[1]
+    bias = is_up ? 1.0 : (is_down ? -1.0 : 0.0)
+    bias
+
+// --- 3. AUDIT & CONFLUENCE ---
+
+// Simulation Logic Overrides
+float s_price = sim_mode ? (sim_vol == "High Vol" ? high + ta.atr(14) : (sim_vol == "Trend Shift" ? low - ta.atr(14) : close)) : close
+float s_vol_val = sim_mode ? (sim_vol == "High Vol" ? volume * 2 : (sim_vol == "Low Vol (Squeeze)" ? volume * 0.1 : volume)) : volume
+
+// Capture Signals
+[mb_r, mb_v] = f_moneyball(14, 10)
+b_moneyball_raw = use_moneyball ? mb_r : 0.0
+val_mb          = use_moneyball ? mb_v : 0.0
+
+[qc_r, qc_v] = f_qcloud(14, 1.5)
+b_qcloud_raw    = use_qcloud ? qc_r : 0.0
+val_qc          = use_qcloud ? qc_v : 0.0
+
+[ql_r, ql_v] = f_qline(14, 3.0)
+b_qline_raw     = use_qline ? ql_r : 0.0
+val_ql          = use_qline ? ql_v : 0.0
+
+b_qsmc_raw      = use_qsmc ? f_qsmc() : 0.0
+
+[qw_r, qw_u, qw_l] = f_qwave(20, 2.0)
+b_qwave_raw     = use_qwave ? qw_r : 0.0
+v_u             = use_qwave ? qw_u : 0.0
+v_l             = use_qwave ? qw_l : 0.0
+b_qrenko_raw              = use_qrenko    ? f_qrenko(14) : 0.0
+b_rs_cycles_raw           = use_rs_cycles ? f_rs_cycles() : 0.0
+b_qgrid_raw               = use_qgrid     ? f_qgrid(14) : 0.0
+b_strat_raw               = use_strat     ? f_strat() : 0.0
+
+// Apply Simulation Overrides to Biases
+b_moneyball = sim_mode ? (sim_vol == "Extreme Consensus" ? 1.0 : (sim_vol == "High Vol" ? 1.0 : -1.0)) : b_moneyball_raw
+b_qcloud    = sim_mode ? (sim_vol == "Extreme Consensus" ? 1.0 : (sim_vol == "Trend Shift" ? -1.0 : 1.0)) : b_qcloud_raw
+b_qwave     = sim_mode ? (sim_vol == "Extreme Consensus" ? 1.0 : (sim_vol == "Low Vol (Squeeze)" ? 0.0 : 1.0)) : b_qwave_raw
+b_qline     = sim_mode ? (sim_vol == "Extreme Consensus" ? 1.0 : b_qline_raw) : b_qline_raw
+b_qsmc      = sim_mode ? (sim_vol == "Extreme Consensus" ? 1.0 : b_qsmc_raw) : b_qsmc_raw
+b_qrenko    = sim_mode ? (sim_vol == "Extreme Consensus" ? 1.0 : b_qrenko_raw) : b_qrenko_raw
+b_rs_cycles = sim_mode ? (sim_vol == "Extreme Consensus" ? 1.0 : b_rs_cycles_raw) : b_rs_cycles_raw
+b_qgrid     = sim_mode ? (sim_vol == "Extreme Consensus" ? 1.0 : b_qgrid_raw) : b_qgrid_raw
+b_strat     = sim_mode ? (sim_vol == "Extreme Consensus" ? 1.0 : b_strat_raw) : b_strat_raw
+
+// Aggregate Confluence
+float total_score = (b_moneyball + b_qcloud + b_qline + b_qsmc + b_qwave + b_qrenko + b_rs_cycles + b_qgrid + b_strat)
+int total_active = (use_moneyball?1:0) + (use_qcloud?1:0) + (use_qline?1:0) + (use_qsmc?1:0) + (use_qwave?1:0) + (use_qrenko?1:0) + (use_rs_cycles?1:0) + (use_qgrid?1:0) + (use_strat?1:0)
+float confidence = (math.abs(total_score) / total_active) * 100
+
+float final_bias = total_score > 1.5 ? 1.0 : (total_score < -1.5 ? -1.0 : 0.0)
+
+// --- 4. Axon-Link v3.0 ENCODING ---
+// Protocol: 200.0 + (Pulse * 0.1) + (Bias * 0.01) + (Conf * 0.00001)
+float pulse = math.abs(total_score) > (total_active * 0.5) ? 2.0 : 1.0
+float bias_digit = (final_bias == 1.0 ? 1.0 : final_bias == -1.0 ? 2.0 : 0.0)
+float Synapse_bus = 200.0 + (pulse * 0.1) + (bias_digit * 0.01) + (math.floor(confidence * 10) / 100000.0)
+
+plot(Synapse_bus, "Synapse-QuantVue Axon-Link Bus", display=display.status_line)
+
+// --- 5. PREMIUM HUD & VISUALS ---
+
+// Colors
+color_bull = #00ffbb // Neon Emerald
+color_bear = #ff3366 // Cyber Crimson
+color_neutral = #667788 // Slate
+color_bg = color.new(#0b0e14, 20) // Deep Glass
+color_border = color.new(color.aqua, 40)
+
+var table hud = table.new(position.top_right, 2, 13, bgcolor=color_bg, border_width=1, border_color=color_border)
+
+if barstate.islast
+    // Header
+    table.cell(hud, 0, 0, "Synapse x QUANTVUE", text_color=color.aqua, text_size=size.normal, text_font_family=font.family_monospace)
+    table.cell(hud, 1, 0, "STATUS", text_color=color.aqua, text_size=size.normal)
+    
+    // Aesthetic Separator
+    table.cell(hud, 0, 1, "────────────────", text_color=color.gray, text_size=size.tiny)
+    table.cell(hud, 1, 1, "────────", text_color=color.gray, text_size=size.tiny)
+
+    // Nodes
+    table.cell(hud, 0, 2, "Moneyball", text_color=color.white, text_halign=text.align_left)
+    table.cell(hud, 1, 2, b_moneyball == 1 ? "BULLISH" : "BEARISH", text_color=b_moneyball == 1 ? color_bull : color_bear)
+    
+    table.cell(hud, 0, 3, "Qcloud (Step)", text_color=color.white, text_halign=text.align_left)
+    table.cell(hud, 1, 3, b_qcloud == 1 ? "ABOVE" : "BELOW", text_color=b_qcloud == 1 ? color_bull : color_bear)
+    
+    table.cell(hud, 0, 4, "Qline (Braid)", text_color=color.white, text_halign=text.align_left)
+    table.cell(hud, 1, 4, b_qline == 1 ? "UP" : "DOWN", text_color=b_qline == 1 ? color_bull : color_bear)
+    
+    table.cell(hud, 0, 5, "Qsmc (Liquidity)", text_color=color.white, text_halign=text.align_left)
+    table.cell(hud, 1, 5, b_qsmc == 1 ? "BULL OB" : (b_qsmc == -1 ? "BEAR OB" : "-"), text_color=b_qsmc == 1 ? color_bull : (b_qsmc == -1 ? color_bear : color_neutral))
+    
+    table.cell(hud, 0, 6, "Qwave (Volatility)", text_color=color.white, text_halign=text.align_left)
+    table.cell(hud, 1, 6, b_qwave == 1 ? "LONG VOL" : (b_qwave == -1 ? "SHORT VOL" : "SQUEEZE"), text_color=b_qwave != 0 ? color_bull : color_neutral)
+    
+    table.cell(hud, 0, 7, "Qrenko (Virtual)", text_color=color.white, text_halign=text.align_left)
+    table.cell(hud, 1, 7, b_qrenko == 1 ? "GREEN" : "RED", text_color=b_qrenko == 1 ? color_bull : color_bear)
+    
+    table.cell(hud, 0, 8, "RS Cycles (Beta)", text_color=color.white, text_halign=text.align_left)
+    table.cell(hud, 1, 8, b_rs_cycles == 1 ? "LEADING" : (b_rs_cycles == -1 ? "LAGGING" : "NEUTRAL"), text_color=b_rs_cycles == 1 ? color_bull : (b_rs_cycles == -1 ? color_bear : color_neutral))
+    
+    table.cell(hud, 0, 9, "Qgrid Pullback", text_color=color.white, text_halign=text.align_left)
+    table.cell(hud, 1, 9, b_qgrid != 0 ? "OVERSOLD" : "BALANCED", text_color=b_qgrid != 0 ? color.yellow : color_neutral)
+    
+    table.cell(hud, 0, 10, "The Strat HTF", text_color=color.white, text_halign=text.align_left)
+    table.cell(hud, 1, 10, b_strat == 1 ? "2-UP" : (b_strat == -1 ? "2-DN" : "INSIDE"), text_color=b_strat == 1 ? color_bull : (b_strat == -1 ? color_bear : color_neutral))
+    
+    // Final Summary
+    table.cell(hud, 0, 11, "CONFLUENCE %", text_color=color.aqua, text_halign=text.align_left)
+    table.cell(hud, 1, 11, str.tostring(confidence, "0") + "%", text_color=confidence > 70 ? color_bull : color_neutral)
+    
+    table.cell(hud, 0, 12, "Axon-Link BUS (" + Axon-Link_slot + ")", text_color=color.gray, text_halign=text.align_left, text_size=size.tiny)
+    table.cell(hud, 1, 12, str.tostring(Synapse_bus, "200.#####"), text_color=color.gray, text_size=size.tiny)
+
+// Visual Plots
+plot(use_qcloud ? val_qc : na, "Qcloud Baseline", color=color.new(color.aqua, 50), style=plot.style_linebr)
+plot(use_qline ? val_ql : na, "Qline Ribbon", color=color.new(color.yellow, 70), linewidth=2)
+fill(plot(use_qwave ? v_u : na), plot(use_qwave ? v_l : na), color.new(color.blue, 90), "Qwave Band")
+
+// --- 6. ALERTS ---
+if use_alerts and final_bias != 0 and final_bias != final_bias[1]
+    alert_json = '{"event": "QuantVue Confluence", "bias": ' + str.tostring(final_bias) + ', "confidence": ' + str.tostring(confidence) + ', "score": ' + str.tostring(total_score) + '}'
+    alert(alert_json, alert.freq_once_per_bar)

@@ -1,0 +1,514 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Selfsimilarity
+
+//@version=6
+indicator("Synapse Master Hub [Command Center]", overlay=true)
+
+// =============================================================================
+// 🧠 MODULE: DECAYING BAYESIAN WEIGHTING (DBW)
+// =============================================================================
+f_Synapse_dbw(float[] _outcomes, float _decay = 0.85) =>
+    float weightSum = 0.0, float valueSum  = 0.0
+    int size = array.size(_outcomes)
+    if size > 0
+        float currentWeight = 1.0
+        for i = 0 to size - 1
+            int idx = size - 1 - i
+            weightSum += currentWeight
+            valueSum  += array.get(_outcomes, idx) * currentWeight
+            currentWeight *= _decay
+    weightSum > 0 ? (valueSum / weightSum) * 100 : 50.0
+
+// =============================================================================
+// 🏦 MODULE: EFFICACY VAULT (Daily Bayesian Priors)
+// =============================================================================
+f_efficacy_vault() =>
+    float winRateA = 55.0  
+    float winRateB = 52.0  
+    float winRateC = 58.0  
+    float winRateD = 50.0  
+    float winRateE = 56.0  
+    float winRateF = 50.0 // Polarity Prior
+    float winRateG = 50.0 // FVG Prior
+    float winRateH = 50.0 // Reserved Prior
+    float winRateExec = 54.0 
+    [winRateA, winRateB, winRateC, winRateD, winRateE, winRateF, winRateG, winRateH, winRateExec]
+
+// =============================================================================
+// 🛰️ MASTER SWITCHBOARD: 8-SLOT UNIVERSAL CONSENSUS (Axon-Link v3.0)
+// =============================================================================
+group_bank_a = "1. Switchboard: Bank A (Primary)"
+srcA_Bus   = input.source(close, "Slot A: Source", group=group_bank_a)
+enA        = input.bool(true, "Slot A Enable", group=group_bank_a)
+labelA     = input.string("Velocity-Delta", "Slot A Label", group=group_bank_a)
+
+srcB_Bus   = input.source(close, "Slot B: Source", group=group_bank_a)
+enB        = input.bool(true, "Slot B Enable", group=group_bank_a)
+labelB     = input.string("Micro-Zone", "Slot B Label", group=group_bank_a)
+
+srcC_Bus   = input.source(close, "Slot C: Source", group=group_bank_a)
+enC        = input.bool(true, "Slot C Enable", group=group_bank_a)
+labelC     = input.string("Acceleration", "Slot C Label", group=group_bank_a)
+
+srcD_Bus   = input.source(close, "Slot D: Source", group=group_bank_a)
+enD        = input.bool(true, "Slot D Enable", group=group_bank_a)
+labelD     = input.string("ML Attack", "Slot D Label", group=group_bank_a)
+
+group_bank_b = "2. Switchboard: Bank B (Secondary)"
+srcE_Bus   = input.source(close, "Slot E: Source", group=group_bank_b)
+enE        = input.bool(true, "Slot E Enable", group=group_bank_b)
+labelE     = input.string("Nitro Exhaust", "Slot E Label", group=group_bank_b)
+
+srcF_Bus   = input.source(close, "Slot F: Source", group=group_bank_b)
+enF        = input.bool(true, "Slot F Enable", group=group_bank_b)
+labelF     = input.string("Polarity", "Slot F Label", group=group_bank_b)
+
+srcG_Bus   = input.source(close, "Slot G: Source", group=group_bank_b)
+enG        = input.bool(true, "Slot G Enable", group=group_bank_b)
+labelG     = input.string("NITRO", "Slot G Label", group=group_bank_b)
+
+srcH_Bus   = input.source(close, "Slot H: Source", group=group_bank_b)
+enH        = input.bool(true, "Slot H Enable", group=group_bank_b)
+// --- 🛰️ FEEDBACK LOOPS (Ouroboros) ---
+group_feedback = "Intrinsic Market State"
+// External Fatigue Bus REMOVED to prevent circular dependency
+group_visuals = "Visuals"
+showTable    = input.bool(true, "Show HUD", group=group_visuals)
+labelH     = input.string("Mag 7 Flow", "Slot H Label", group=group_bank_b)
+
+
+
+// --- Axon-Link v3.0 DECODER ENGINE (Universal) ---
+f_decode_universal(wire) =>
+    val = nz(wire) - 200.0
+    active = val >= 0 and val < 1.0
+    _pulse = active ? (math.floor(val * 10 + 0.5) % 10) : 0
+    _bias  = active ? (math.floor(val * 100 + 0.5) % 10) : 0
+    _conf  = active ? (math.floor(val * 100000 + 0.5) % 1000) / 10.0 : 0.0 
+    [_bias == 1 ? 1.0 : (_bias == 2 ? -1.0 : 0.0), _pulse, _conf]
+
+// Unpack all 8 Slots using the Universal Decoder
+f_pack_result(_en, _bus) =>
+    if _en
+        f_decode_universal(_bus)
+    else
+        [0.0, 0, 0.0]
+
+[biasA, pulseA, confA] = f_pack_result(enA, srcA_Bus)
+[biasB, pulseB, confB] = f_pack_result(enB, srcB_Bus)
+[biasC, pulseC, confC] = f_pack_result(enC, srcC_Bus)
+[biasD, pulseD, confD] = f_pack_result(enD, srcD_Bus)
+[biasE, pulseE, confE] = f_pack_result(enE, srcE_Bus)
+[biasF, pulseF, confF] = f_pack_result(enF, srcF_Bus)
+[biasG, pulseG, confG] = f_pack_result(enG, srcG_Bus)
+[biasH, pulseH, confH] = f_pack_result(enH, srcH_Bus)
+
+// Bayesian Efficacy Tracking Setup
+[vaultA, vaultB, vaultC, vaultD, vaultE, vaultF, vaultG, vaultH, vaultExec] = f_efficacy_vault()
+
+type EfficacyState
+    float   entryPrice = na
+    float   tpPrice    = na
+    float   slPrice    = na
+    float   ptPrice    = na
+    float   trPrice    = na 
+    bool    ptHit      = false
+    int     direction  = 0
+    int     lastExitBar = 0
+    float   simMFE     = 0.0
+    float[] outcomes
+    float[] runnerOutcomes
+
+// --- STRUCTURAL AUDIT TYPES ---
+type AnchorPoint
+    int barIdx
+    float entryPrice
+    int direction
+    float sum_pv
+    float sum_v
+    float sum_pv2
+
+// Bayesian Settings
+group_risk = "3. Risk & Bayesian Audit"
+risk_mode  = input.string("ATR", "Risk Input Mode", options=["ATR", "Points"], group=group_risk)
+enable_ride = input.bool(true, "Enable Trend Riding", group=group_risk, tooltip="If ON, high-conviction trends will bypass hard TP and use purely Trailing Stop.")
+ride_thresh = input.float(3.5, "Ride Trigger (Neural Sum)", minval=2.25, group=group_risk)
+expansion_limit = input.float(3.0, "Expansion Limit (SD)", minval=2.0, step=0.1, group=group_risk, tooltip="Structural Deviation limit for 'Exhaustion Clamp'.")
+limit_pro  = input.float(3.5, "Pro-Trend Limit (SD)", minval=2.0, group=group_risk, tooltip="Use 'PRO TARGET' from Audit here.")
+limit_cntr = input.float(1.8, "Counter-Trend Limit (SD)", minval=1.0, group=group_risk, tooltip="Use 'CNTR TARGET' from Audit here.")
+
+// Kernel Regression Inputs (Internal Brain Context)
+k_h = input.int(8, "Kernel Lookback (h)", minval=2, group="3. ML Kernel Baseline")
+k_r = input.float(8.0, "Relative Weight (r)", minval=0.1, group="3. ML Kernel Baseline")
+k_x = input.int(25, "Regression Window (x)", minval=10, group="3. ML Kernel Baseline")
+
+proxyTP    = input.float(1.5, "Proxy TP (ATR/Pts)", group=group_risk)
+proxySL    = input.float(1.0, "Proxy SL (ATR/Pts)", group=group_risk)
+proxyPT    = input.float(0.7, "Proxy Partial (ATR/Pts)", group=group_risk)
+proxyTrailAct = input.float(1.2, "Trail Active (ATR/Pts)", group=group_risk)
+proxyTrailDist = input.float(0.8, "Trail Offset (ATR/Pts)", group=group_risk)
+
+evalWindow = input.int(10, "Evaluation Window", minval=5, group=group_risk)
+dbwDecay   = input.float(0.75, "DBW Decay Rate", group=group_risk)
+proxyBarsBetween = input.int(8, "Bars Between Trades", group=group_risk)
+runnerThreshold = input.float(60.0, "Runner Target (Points)", group=group_risk)
+runnerWeight    = input.float(1.2, "Runner Trust Reward", group=group_risk)
+
+// Global Variables
+float globalATR = ta.atr(14)
+
+// Risk Normalization Logic
+bool is_pts = risk_mode == "Points"
+float effTP = is_pts ? proxyTP : globalATR * proxyTP
+float effSL = is_pts ? proxySL : globalATR * proxySL
+float effPT = is_pts ? proxyPT : globalATR * proxyPT
+float effTrAct = is_pts ? proxyTrailAct : globalATR * proxyTrailAct
+float effTrDst = is_pts ? proxyTrailDist : globalATR * proxyTrailDist
+
+// --- CONTEXT MODULE: SURGEON SESSION ---
+group_time = "0. Context Settings"
+session1 = input.session("0930-1600", "Trading Session 1", group=group_time)
+timezone = input.string("UTC-6", "Session Timezone", group=group_time)
+inSession = not na(time(timeframe.period, session1, timezone))
+
+// --- 🔬 FORENSIC AUDIT MODE ---
+audit_mode = input.string("NORMAL", "Solo Audit Mode", options=["NORMAL", "Slot A", "Slot B", "Slot C", "Slot D", "Slot E", "Slot F", "Slot G", "Slot H", "Kernel Only"], group=group_time, tooltip="Isolate a specific node to audit its pure performance.")
+// useLeanMode REMOVED to restore user control over Threshold (Fix Bad RR)
+
+f_update_efficacy(biasInt, tpPts, slPts, ptPts, trActPts, trDstPts, barsBetween, runTarget, runWeight, windowSize, state, activeSession, atr, decay) =>
+    // Forced Re-Entry Logic: If conviction is massive (> 3.0), ignore the cooldown.
+    is_force_entry = math.abs(biasInt) >= 3.0
+    canEnter = (bar_index - state.lastExitBar) >= barsBetween or is_force_entry
+    if activeSession and canEnter and biasInt != 0 and na(state.entryPrice)
+        state.entryPrice := close
+        state.direction  := int(biasInt)
+        state.tpPrice    := state.direction == 1 ? close + tpPts : close - tpPts
+        state.slPrice    := state.direction == 1 ? close - slPts : close + slPts
+        state.ptPrice    := state.direction == 1 ? close + ptPts : close - ptPts
+        state.trPrice    := na, state.ptHit := false, state.simMFE := 0.0
+    
+    if not na(state.entryPrice)
+        hitTP = state.direction == 1 ? high >= state.tpPrice : low <= state.tpPrice
+        hitSL = state.direction == 1 ? low <= state.slPrice : high >= state.slPrice
+        hitPT = state.direction == 1 ? high >= state.ptPrice : low <= state.ptPrice
+        if state.direction == 1
+            if high - state.entryPrice >= trActPts
+                newTrail = high - trDstPts
+                state.trPrice := na(state.trPrice) ? newTrail : math.max(state.trPrice, newTrail)
+        else
+            if state.entryPrice - low >= trActPts
+                newTrail = low + trDstPts
+                state.trPrice := na(state.trPrice) ? newTrail : math.min(state.trPrice, newTrail)
+        hitTR = not na(state.trPrice) and (state.direction == 1 ? low <= state.trPrice : high >= state.trPrice)
+        if hitPT
+            state.ptHit := true
+        curMFE = state.direction == 1 ? high - state.entryPrice : state.entryPrice - low
+        state.simMFE := math.max(state.simMFE, curMFE)
+        if hitTP or hitSL or hitTR
+            score = hitTP ? 1.0 : (hitTR ? 0.8 : (state.ptHit ? 0.5 : 0.0))
+            array.push(state.outcomes, score)
+            array.push(state.runnerOutcomes, state.simMFE >= runTarget ? 1.0 : 0.0)
+            if array.size(state.outcomes) > windowSize
+                array.shift(state.outcomes)
+            if array.size(state.runnerOutcomes) > windowSize
+                array.shift(state.runnerOutcomes)
+            state.entryPrice := na, state.lastExitBar := bar_index
+    
+    winRate = f_Synapse_dbw(state.outcomes, decay)
+    runRate = array.size(state.runnerOutcomes) > 0 ? array.avg(state.runnerOutcomes) * 100 : 0.0
+    runBoost = 1.0 + (runRate / 100.0) * (runWeight - 1.0)
+    trust = math.min(math.max(winRate / 50.0, 0.2), 1.8) * runBoost
+    [winRate, trust, runRate]
+
+// Initialize 8 States
+var stateA = EfficacyState.new(na, na, na, na, na, false, 0, 0, 0.0, array.new_float(0), array.new_float(0))
+var stateB = EfficacyState.new(na, na, na, na, na, false, 0, 0, 0.0, array.new_float(0), array.new_float(0))
+var stateC = EfficacyState.new(na, na, na, na, na, false, 0, 0, 0.0, array.new_float(0), array.new_float(0))
+var stateD = EfficacyState.new(na, na, na, na, na, false, 0, 0, 0.0, array.new_float(0), array.new_float(0))
+var stateE = EfficacyState.new(na, na, na, na, na, false, 0, 0, 0.0, array.new_float(0), array.new_float(0))
+var stateF = EfficacyState.new(na, na, na, na, na, false, 0, 0, 0.0, array.new_float(0), array.new_float(0))
+var stateG = EfficacyState.new(na, na, na, na, na, false, 0, 0, 0.0, array.new_float(0), array.new_float(0))
+var stateH = EfficacyState.new(na, na, na, na, na, false, 0, 0, 0.0, array.new_float(0), array.new_float(0))
+
+[winA, trustA, runA] = f_update_efficacy(biasA, effTP, effSL, effPT, effTrAct, effTrDst, proxyBarsBetween, runnerThreshold, runnerWeight, evalWindow, stateA, inSession, globalATR, dbwDecay)
+[winB, trustB, runB] = f_update_efficacy(biasB, effTP, effSL, effPT, effTrAct, effTrDst, proxyBarsBetween, runnerThreshold, runnerWeight, evalWindow, stateB, inSession, globalATR, dbwDecay)
+[winC, trustC, runC] = f_update_efficacy(biasC, effTP, effSL, effPT, effTrAct, effTrDst, proxyBarsBetween, runnerThreshold, runnerWeight, evalWindow, stateC, inSession, globalATR, dbwDecay)
+[winD, trustD, runD] = f_update_efficacy(biasD, effTP, effSL, effPT, effTrAct, effTrDst, proxyBarsBetween, runnerThreshold, runnerWeight, evalWindow, stateD, inSession, globalATR, dbwDecay)
+[winE, trustE, runE] = f_update_efficacy(biasE, effTP, effSL, effPT, effTrAct, effTrDst, proxyBarsBetween, runnerThreshold, runnerWeight, evalWindow, stateE, inSession, globalATR, dbwDecay)
+[winF, trustF, runF] = f_update_efficacy(biasF, effTP, effSL, effPT, effTrAct, effTrDst, proxyBarsBetween, runnerThreshold, runnerWeight, evalWindow, stateF, inSession, globalATR, dbwDecay)
+[winG, trustG, runG] = f_update_efficacy(biasG, effTP, effSL, effPT, effTrAct, effTrDst, proxyBarsBetween, runnerThreshold, runnerWeight, evalWindow, stateG, inSession, globalATR, dbwDecay)
+[winH, trustH, runH] = f_update_efficacy(biasH, effTP, effSL, effPT, effTrAct, effTrDst, proxyBarsBetween, runnerThreshold, runnerWeight, evalWindow, stateH, inSession, globalATR, dbwDecay)
+
+// --- TURBO Synapse WEIGHTS (High-Velocity Default) ---
+// Slots A, C, G, E are DRIVERS (1.5x)
+// Slots B, D are CONTEXT (0.5x)
+float lA = 1.5, float lB = 0.5 
+float lC = 1.5, float lD = 0.5 
+float lE = 1.5, float lF = 0.8 
+float lG = 1.5, float lH = 1.5 
+
+// Fallback to Vault if no live data
+winA_eff = array.size(stateA.outcomes) > 0 ? winA : vaultA
+winB_eff = array.size(stateB.outcomes) > 0 ? winB : vaultB
+winC_eff = array.size(stateC.outcomes) > 0 ? winC : vaultC
+winD_eff = array.size(stateD.outcomes) > 0 ? winD : vaultD
+winE_eff = array.size(stateE.outcomes) > 0 ? winE : vaultE
+winF_eff = array.size(stateF.outcomes) > 0 ? winF : vaultF
+winG_eff = array.size(stateG.outcomes) > 0 ? winG : vaultG
+winH_eff = array.size(stateH.outcomes) > 0 ? winH : vaultH
+
+// =============================================================================
+// 🧬 MODULE 3: NEURAL Synapse CONSENSUS (8-Node Weighted Sum)
+// =============================================================================
+group_synapses = "3. Synaptic Weights"
+neural_threshold_input = input.float(2.25, "Neural Threshold", group=group_synapses, tooltip="Base cumulative trust needed to fire.")
+float active_threshold = (audit_mode == "NORMAL" ? neural_threshold_input : 0.5)
+
+actA = biasA * (trustA * lA), actB = biasB * (trustB * lB), actC = biasC * (trustC * lC), actD = biasD * (trustD * lD)
+actE = biasE * (trustE * lE), actF = biasF * (trustF * lF), actG = biasG * (trustG * lG), actH = biasH * (trustH * lH)
+
+// --- KERNEL CONTEXT ENGINE (Internal) ---
+// Moved up to influence Consensus
+float sum_w = 0.0
+float sum_yw = 0.0
+for i = 0 to k_x
+    float d = i
+    // Rational Quadratic Kernel
+    float w = math.pow(1 + (d * d) / (2 * k_r * k_h * k_h), -k_r)
+    sum_w += w
+    sum_yw += w * close[i]
+float kernel_line = sum_yw / sum_w
+
+// Determine Active Context with Hysteresis (Colonel's Gate)
+// To prevent "Ghost Rage" (flicker), we require price to clear the Kernel Line by a margin.
+float k_gate = ta.atr(14) * 0.15 // 15% of ATR buffer
+float kernel_bias = 0.0
+
+if close > (kernel_line + k_gate)
+    kernel_bias := 1.0
+else if close < (kernel_line - k_gate)
+    kernel_bias := -1.0
+else
+    kernel_bias := 0.0 // Silence in the Noise
+
+bool is_bull = close > kernel_line // Keep simple boolean for context flags, but bias is now gated.
+
+// Add Kernel to Sum (The Colonel Speaks)
+kernel_weight = input.float(1.6, "Kernel Bias Weight", minval=0.0, group=group_synapses, tooltip="Power of the Trend Bias.")
+actKernel = kernel_bias * kernel_weight
+
+// --- 🧬 NEURAL AGGREGATION (Solo vs Consensus) ---
+float neural_sum = 0.0
+switch audit_mode
+    "NORMAL"      => neural_sum := actA + actB + actC + actD + actE + actF + actG + actH + actKernel
+    "Slot A"      => neural_sum := actA
+    "Slot B"      => neural_sum := actB
+    "Slot C"      => neural_sum := actC
+    "Slot D"      => neural_sum := actD
+    "Slot E"      => neural_sum := actE
+    "Slot F"      => neural_sum := actF
+    "Slot G"      => neural_sum := actG
+    "Slot H"      => neural_sum := actH
+    "Kernel Only" => neural_sum := actKernel
+
+// --- STICKY CONSENSUS LOGIC (Hysteresis) ---
+var float sticky_bias = 0.0
+// Activation (High Conviction to Start)
+if neural_sum >= active_threshold
+    sticky_bias := 1.0
+else if neural_sum <= -active_threshold
+    sticky_bias := -1.0
+else
+    // Maintenance (Hold if trend is agreeing)
+    if sticky_bias == 1.0 and neural_sum > 0.0
+        sticky_bias := 1.0
+    else if sticky_bias == -1.0 and neural_sum < 0.0
+        sticky_bias := -1.0
+    else
+        sticky_bias := 0.0
+
+neural_bias = sticky_bias
+
+// --- RIDE PERSISTENCE ---
+// If we were Riding (Healthy Structure) last bar, don't let a small dip kill the trade.
+// Only exit if the consensus actually reverses (Crosses -1.0/+1.0 against us).
+var float ride_flag = 0.0
+if ride_flag[1] > 0
+    bool strong_reversal = (neural_bias[1] == 1 and neural_sum < -1.0) or (neural_bias[1] == -1 and neural_sum > 1.0)
+    if not strong_reversal
+        neural_bias := neural_bias[1] // Force Persistence
+
+// Calculation of Persistence Potential (Straddle Flag)
+// Initialize Dampen Mode (Reset per bar)
+bool dampen_mode = false
+
+run_weighted_avg = (actA != 0 ? runA : 0) + (actB != 0 ? runB : 0) + (actC != 0 ? runC : 0) + (actD != 0 ? runD : 0) + 
+                   (actE != 0 ? runE : 0) + (actF != 0 ? runF : 0) + (actG != 0 ? runG : 0) + (actH != 0 ? runH : 0)
+total_conf       = (actA != 0 ? confA : 0) + (actB != 0 ? confB : 0) + (actC != 0 ? confC : 0) + (actD != 0 ? confD : 0) + 
+                   (actE != 0 ? confE : 0) + (actF != 0 ? confF : 0) + (actG != 0 ? confG : 0) + (actH != 0 ? confH : 0)
+num_active_nodes = (actA != 0 ? 1 : 0) + (actB != 0 ? 1 : 0) + (actC != 0 ? 1 : 0) + (actD != 0 ? 1 : 0) + 
+                   (actE != 0 ? 1 : 0) + (actF != 0 ? 1 : 0) + (actG != 0 ? 1 : 0) + (actH != 0 ? 1 : 0)
+
+avg_run_potential = num_active_nodes > 0 ? run_weighted_avg / num_active_nodes : 0.0
+avg_conf          = num_active_nodes > 0 ? total_conf / num_active_nodes : 0.0
+straddle_flag     = avg_run_potential >= 45.0 ? 1.0 : 0.0 
+
+// --- STRUCTURAL TRADE MANAGEMENT ---
+var AnchorPoint currentTrade = AnchorPoint.new(na, na, 0, 0.0, 0.0, 0.0)
+bool new_trade_start = ta.change(neural_bias) != 0 and neural_bias != 0
+
+if new_trade_start
+    currentTrade.barIdx := bar_index
+    currentTrade.entryPrice := close
+    currentTrade.direction := int(neural_bias)
+    currentTrade.sum_pv := 0.0
+    currentTrade.sum_v := 0.0
+    currentTrade.sum_pv2 := 0.0
+
+// Update Active Anchor
+float trade_sd = 0.0
+if not na(currentTrade.barIdx) and neural_bias != 0
+    currentTrade.sum_pv  += (close * volume)
+    currentTrade.sum_pv2 += (math.pow(close, 2) * volume)
+    currentTrade.sum_v   += volume
+    
+    float t_avwap = currentTrade.sum_v > 0 ? currentTrade.sum_pv / currentTrade.sum_v : na
+    float t_avar  = currentTrade.sum_v > 0 ? math.max(0, (currentTrade.sum_pv2 / currentTrade.sum_v) - math.pow(t_avwap, 2)) : 0.0
+    trade_sd      := math.sqrt(t_avar)
+
+// Kernel Calculation moved up for consensus integration
+// Context determined by Kernel Bias
+bool context_pro = (neural_bias == 1 and is_bull) or (neural_bias == -1 and not is_bull)
+
+// --- INTRINSIC FATIGUE DETECTION (Internal) ---
+// Since we cannot loop AV6 executions back without circular dependency,
+// The Master Hub must self-diagnose Market Chop.
+
+// 1. CHOP INDEX (Standard 14-period)
+// High Chop (> 61.8) = Sideways Market
+float ci_high = ta.highest(high, 14)
+float ci_low  = ta.lowest(low, 14)
+float ci_atr  = ta.atr(14)
+float ci_sum  = math.sum(ta.atr(1), 14)
+float chop_idx = 100 * math.log10(ci_sum / (ci_high - ci_low)) / math.log10(14)
+
+// 2. ADX Filter (Trend Strength)
+[diplus, diminus, adx_val] = ta.dmi(14, 14)
+
+// 3. Volatility Compression (Squeeze)
+// BB vs KC
+[bb_m, bb_u, bb_l] = ta.bb(close, 20, 2.0)
+[kc_m, kc_u, kc_l] = ta.kc(close, 20, 1.5)
+bool is_squeezed = (bb_u < kc_u) and (bb_l > kc_l)
+
+// FATIGUE CRITERIA:
+// - Chop Index is High (>60)
+// - ADX is Low (<20) indicating no trend
+// - Squeezed (optional, usually precedes explosion but current state is dead)
+bool intrinsic_fatigue = (chop_idx > 60.0) or (adx_val < 18.0)
+
+// Dampen Logic: If Fatigued, we crush the confidence score
+if intrinsic_fatigue
+    avg_conf := avg_conf * 0.5 // 50% Penalty
+    dampen_mode := true
+
+bool is_fatigued = intrinsic_fatigue // Map for HUD consistency
+
+// Dynamic Limit Selection
+float dynamic_limit = context_pro ? limit_pro : limit_cntr
+
+// Structural Logic + Lead Indicator (Slot E)
+float current_dist_sd = (trade_sd > 0 and neural_bias != 0) ? math.abs(close - currentTrade.entryPrice) / (trade_sd == 0 ? 1.0 : trade_sd) : 0.0
+
+bool is_healthy_trend = enable_ride and current_dist_sd > 1.0 and current_dist_sd < dynamic_limit
+
+// Exhaustion: True if STRUCTURAL limit hit OR indicator-based exhaustion (biasE) confirms fatigue
+bool is_exhausted     = enable_ride and (current_dist_sd >= dynamic_limit or (neural_bias == 1 and biasE == -1) or (neural_bias == -1 and biasE == 1))
+
+ride_flag         := is_healthy_trend ? 1.0 : 0.0
+float vol_flag    = is_exhausted ? 1.0 : 0.0 // Using Vol Bit for Exhaustion Signal (Lead Exit)
+
+// =============================================================================
+// 🚌 UNIVERSAL Axon-Link (Axon-Link v3.0 Outbound)
+// =============================================================================
+// Bitmask for Combination Tracking (cID)
+combo_id = 0.0
+if biasA != 0 
+    combo_id += 1
+if biasB != 0 
+    combo_id += 2
+if biasC != 0 
+    combo_id += 4
+if biasD != 0 
+    combo_id += 8
+if biasE != 0 
+    combo_id += 16
+if biasF != 0 
+    combo_id += 32
+if biasG != 0 
+    combo_id += 64
+if biasH != 0 
+    combo_id += 128
+
+// --- Axon-Link v3.0 ENCODING ---
+// Protocol: 100. [bias] [res] [rr] [et] [t] [v] [ap] [straddle] [comboID]
+float b_dig = neural_bias > 0 ? 1.0 : (neural_bias < 0 ? 2.0 : 0.0)
+
+// Calculate Adaptive RR and Resonance digits
+float abs_sum = math.abs(neural_sum)
+float rr_digit = abs_sum >= 5.0 ? 4.0 : (abs_sum >= 3.5 ? 3.0 : (abs_sum >= 2.5 ? 2.0 : 1.0))
+float res_digit = avg_conf >= 75.0 ? 1.0 : (avg_conf <= 40.0 ? 2.0 : 0.0)
+
+mb_wire = 100.0 + (b_dig * 0.1) + (res_digit * 0.01) + (rr_digit * 0.001) + (ride_flag * 0.0001) + (straddle_flag * 0.00001) + (vol_flag * 0.000001) + (combo_id * 0.0000000001)
+
+// =============================================================================
+// HUD: QUAD-DOUBLE Synapse (High-Fidelity Dashboard)
+// =============================================================================
+f_draw_cell(t, col_idx, row_idx, label, win, run, trust, bias, enabled) =>
+    base_col = enabled ? color.silver : color.new(color.gray, 60)
+    bias_col = not enabled ? color.gray : (bias == 1 ? color.lime : (bias == -1 ? color.red : color.gray))
+    bias_txt = not enabled ? "OFF" : (bias == 1 ? "LONG" : (bias == -1 ? "SHORT" : "WAIT"))
+    
+    // Cell Content: Label | Bias | WR
+    txt = label + (enabled ? "" : " (OFF)") + "\n" + bias_txt + " (" + str.tostring(win, "0") + "%)"
+    table.cell(t, col_idx, row_idx, txt, text_color=bias_col, bgcolor=color.new(base_col, 95), text_size=size.small)
+
+group_hud = "4. HUD Settings"
+table_pos = input.string(position.top_right, "HUD Position", options=[position.top_right, position.bottom_right, position.top_left, position.bottom_left], group=group_hud)
+var hubTab = table.new(table_pos, 4, 5, bgcolor=color.new(#151924, 10), border_color=color.new(color.gray, 50), border_width=1)
+
+if barstate.islast
+    // ROW 1: Slots A - D (Revitalized Bank A)
+    f_draw_cell(hubTab, 0, 0, labelA, winA_eff, runA, trustA, biasA, enA)
+    f_draw_cell(hubTab, 1, 0, labelB, winB_eff, runB, trustB, biasB, enB)
+    f_draw_cell(hubTab, 2, 0, labelC, winC_eff, runC, trustC, biasC, enC)
+    f_draw_cell(hubTab, 3, 0, labelD, winD_eff, runD, trustD, biasD, enD)
+
+    // ROW 2: Slots E - H (Drivers)
+    f_draw_cell(hubTab, 0, 1, labelE, winE_eff, runE, trustE, biasE, enE)
+    f_draw_cell(hubTab, 1, 1, labelF, winF_eff, runF, trustF, biasF, enF)
+    f_draw_cell(hubTab, 2, 1, labelG, winG_eff, runG, trustG, biasG, enG)
+    f_draw_cell(hubTab, 3, 1, labelH, winH_eff, runH, trustH, biasH, enH)
+
+    // Adaptive Metrics Calculation
+    activeRRStr = rr_digit == 4 ? "2.5x" : (rr_digit == 3 ? "1.8x" : (rr_digit == 2 ? "1.5x" : "1.2x"))
+    activeResStr = res_digit == 1 ? "ELITE" : (res_digit == 2 ? "DAMPEN" : "NORM")
+
+    // Live Risk Projection
+    rr_mult      = rr_digit == 4 ? 2.5 : (rr_digit == 3 ? 1.8 : (rr_digit == 2 ? 1.5 : 1.2))
+    proj_tp_pts  = effSL * rr_mult // Fix: Apply RR to Stop Loss, not TP input
+    proj_sl_pts  = effSL
+    target_pts_str = str.tostring(proj_tp_pts, "0.0") + " pts"
+    stop_pts_str   = str.tostring(proj_sl_pts, "0.0") + " pts"
+
+    // Footer: Metrics (Spanning columns)
+    table.merge_cells(hubTab, 0, 2, 1, 2)
+    table.merge_cells(hubTab, 2, 2, 3, 2)
+    table.merge_cells(hubTab, 0, 3, 3, 3) // Risk Row
+    
+    table.cell(hubTab, 0, 2, "Synapse SUM: " + str.tostring(neural_sum, "0.00") + (context_pro ? " (PRO)" : " (CNTR)"), text_color=neural_bias != 0 ? (context_pro ? color.lime : color.orange) : color.silver, text_size=size.small)
+    table.cell(hubTab, 2, 2, "RR: " + (ride_flag == 1 ? "INFINITY" : activeRRStr) + " (Target: " + str.tostring(dynamic_limit, "0.0") + "σ)" + (is_fatigued ? " [FATIGUE]" : ""), text_color=is_fatigued ? color.red : (ride_flag == 1 ? color.fuchsia : color.aqua), text_size=size.small)
+    table.cell(hubTab, 0, 3, "LIVE RISK: SL " + stop_pts_str + " | ATR: " + str.tostring(globalATR, "0.0") + " pts | STRUCT: " + (is_exhausted ? "A-CLAMP" : (is_healthy_trend ? "RIDE" : "SCOUT")), text_color=is_exhausted ? color.red : (is_healthy_trend ? color.lime : color.orange), text_size=size.tiny)
+
+// Output Bus
+plot(mb_wire, "Output: Universal Axon-Link", display=display.status_line)

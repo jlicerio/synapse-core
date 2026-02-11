@@ -1,0 +1,141 @@
+//@version=6
+indicator("Synapse Sub-Hub: High-Density ML [Slot D]", overlay=false)
+
+// =============================================================================
+// Synapse SUB-HUB: HIGH-DENSITY ML [SLOT D] (Revitalized Bank A)
+// =============================================================================
+// Replaces the legacy "ML Hub" (1000-bar Lookback, Gated).
+// Focuses on HIGH-DENSITY PATTERN RECOGNITION (300 Bars).
+// Trained purely on VELOCITY Z-SCORES (Matching Slot A/C).
+// =============================================================================
+
+// --- 1. CONFIGURATION ---
+group_ml = "1. High-Density ML Settings"
+lookback_win = input.int(300, "Pattern Memory (Bars)", minval=50, group=group_ml)
+neighbors    = input.int(8, "Nearest Neighbors (K)", minval=1, group=group_ml)
+min_conf     = input.float(0.0, "Min Confidence (>)", minval=-1.0, maxval=1.0, group=group_ml)
+
+group_learn = "2. Bayesian Learning"
+win_size    = input.int(10, "Efficacy Window", minval=5, group=group_learn)
+
+// --- 2. FEATURE ENGINEERING (Velocity Z-Scores) ---
+// We want to detect "Velocity Signatures", not absolute price levels.
+// Z-Score = (Value - Avg) / StDev
+
+f_zscore(src, len) =>
+    (src - ta.sma(src, len)) / math.max(ta.stdev(src, len), 1e-6)
+
+// Feature 1: Price Velocity (Delta)
+float feat_vel = f_zscore(ta.change(close), 5)
+
+// Feature 2: Volatility Spike (Range)
+float feat_vol = f_zscore(ta.tr, 5)
+
+// Feature 3: Relative Strength (RSI Velocity)
+float feat_rsi = f_zscore(ta.rsi(close, 7), 20)
+
+// --- 3. LORENTZIAN KERNEL (High-Density) ---
+// Categorize patterns: 1 (Pump), -1 (Dump)
+float label = close > close[1] ? 1.0 : -1.0
+
+var float[] f1_mem = array.new_float(0)
+var float[] f2_mem = array.new_float(0)
+var float[] f3_mem = array.new_float(0)
+var float[] y_mem  = array.new_float(0)
+
+if barstate.isconfirmed
+    array.push(f1_mem, feat_vel[1])
+    array.push(f2_mem, feat_vol[1])
+    array.push(f3_mem, feat_rsi[1])
+    array.push(y_mem, label)
+    
+    if array.size(f1_mem) > lookback_win
+        array.shift(f1_mem), array.shift(f2_mem), array.shift(f3_mem), array.shift(y_mem)
+
+// Classification Engine
+float prediction = 0.0
+if array.size(y_mem) >= neighbors
+    float[] dists = array.new_float(0)
+    for i = 0 to array.size(y_mem) - 1
+        float d = math.log(1 + math.abs(feat_vel - array.get(f1_mem, i))) + 
+                  math.log(1 + math.abs(feat_vol - array.get(f2_mem, i))) + 
+                  math.log(1 + math.abs(feat_rsi - array.get(f3_mem, i)))
+        array.push(dists, d)
+    
+    // Find Nearest Neighbors
+    int[] ids = array.sort_indices(dists, order.ascending)
+    float sum_y = 0.0
+    for k = 0 to neighbors - 1
+        sum_y += array.get(y_mem, array.get(ids, k))
+    
+    prediction := sum_y / neighbors
+
+// --- 4. SIGNAL GENERATION ---
+float final_bias = 0.0
+float pulse_strength = 0.0
+
+if prediction > min_conf
+    final_bias := 1.0
+    pulse_strength := math.abs(prediction) > 0.6 ? 2.0 : 1.0 // High Confidence = Turbo
+else if prediction < -min_conf
+    final_bias := -1.0
+    pulse_strength := math.abs(prediction) > 0.6 ? 2.0 : 1.0
+
+// --- 5. AUDIT ENGINE (Bayesian) ---
+type NodeState
+    float entryPrice = na
+    int   direction  = 0
+    float[] outcomes
+
+f_audit_node(_bias, _state, _tp_mult) =>
+    float _atr = ta.atr(14)
+    if not na(_state.entryPrice)
+        float dist = _state.direction == 1 ? high - _state.entryPrice : _state.entryPrice - low
+        float sl_dist = _state.direction == 1 ? _state.entryPrice - low : high - _state.entryPrice
+        
+        bool hitTP = dist >= _atr * _tp_mult
+        bool hitSL = sl_dist >= _atr * 1.0
+        
+        if hitTP or hitSL
+            array.push(_state.outcomes, hitTP ? 1.0 : 0.0)
+            if array.size(_state.outcomes) > win_size
+                array.shift(_state.outcomes)
+            _state.entryPrice := na
+            
+    if _bias != 0 and na(_state.entryPrice)
+        _state.entryPrice := close
+        _state.direction := _bias > 0 ? 1 : -1
+        
+    array.size(_state.outcomes) > 0 ? array.avg(_state.outcomes) * 100 : 50.0
+
+var s_node = NodeState.new(na, 0, array.new_float(0))
+float win_rate = f_audit_node(final_bias, s_node, 1.5)
+
+// --- 6. Axon-Link v3.0 ENCODING ---
+// Protocol: 200.PBCCC
+float bus_proto = 200.0
+float p_digit = pulse_strength
+float b_digit = final_bias == 1.0 ? 1.0 : (final_bias == -1.0 ? 2.0 : 0.0)
+float c_val   = math.floor(win_rate * 10 + 0.5) 
+
+float Synapse_bus = bus_proto + (p_digit * 0.1) + (b_digit * 0.01) + (c_val / 100000.0)
+plot(Synapse_bus, "ML Bus Output", display=display.status_line)
+
+// --- DASHBOARD ---
+var table hud = table.new(position.bottom_right, 3, 6, bgcolor=color.new(color.black, 40), border_width=1)
+if barstate.islast
+    table.cell(hud, 0, 0, "HIGH-DENSITY ML", text_color=color.aqua)
+    table.cell(hud, 1, 0, "VALUE", text_color=color.silver, text_size=size.small)
+    table.cell(hud, 2, 0, "STATUS", text_color=color.silver, text_size=size.small)
+
+    table.cell(hud, 0, 1, "Next-Bar Pred", text_color=color.white, text_halign=text.align_left)
+    table.cell(hud, 1, 1, str.tostring(prediction, "#.##"), text_color=prediction > 0 ? color.lime : (prediction < 0 ? color.red : color.gray))
+    table.cell(hud, 2, 1, math.abs(prediction) > 0.6 ? "STRONG" : "WEAK", text_color=math.abs(prediction) > 0.6 ? color.yellow : color.gray)
+
+    table.cell(hud, 0, 2, "Review", text_color=color.white, text_halign=text.align_left)
+    table.cell(hud, 1, 2, "300b", text_color=color.silver)
+    table.cell(hud, 2, 2, "ACTIVE", text_color=color.lime) // No more Gated status
+
+    table.cell(hud, 0, 4, "FINAL OUT", text_color=color.aqua)
+    table.cell(hud, 1, 4, final_bias == 1 ? "BULL" : (final_bias == -1 ? "BEAR" : "-"), bgcolor=final_bias == 1 ? color.green : (final_bias == -1 ? color.red : na))
+    table.cell(hud, 2, 4, str.tostring(Synapse_bus, "#.####"), text_color=color.gray, text_size=size.tiny)

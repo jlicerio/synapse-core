@@ -1,0 +1,108 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © antigravity
+
+//@version=6
+indicator("Neural Synapse Cerebellum [ML Suite Module 2]", overlay=false)
+
+// =============================================================================
+// INPUTS & SYNAPTIC MAPPING
+// =============================================================================
+group_synapses = "Synaptic Layers (Weights)"
+wA_A = input.float(1.0, "Slot A -> Neuron A (Identity)", group=group_synapses)
+wA_B = input.float(0.5, "Slot A -> Neuron B (Inhibtion)", group=group_synapses)
+wA_C = input.float(0.2, "Slot A -> Neuron C (Auxiliary)", group=group_synapses)
+wA_D = input.float(0.1, "Slot A -> Neuron D (Aggregator)", group=group_synapses)
+
+wB_A = input.float(0.5, "Slot B -> Neuron A (Auxiliary)", group=group_synapses)
+wB_B = input.float(1.0, "Slot B -> Neuron B (Identity)", group=group_synapses)
+wB_C = input.float(-0.5, "Slot B -> Neuron C (Inhibition)", group=group_synapses)
+wB_D = input.float(0.1, "Slot B -> Neuron D (Aggregator)", group=group_synapses)
+
+wC_A = input.float(0.2, "Slot C -> Neuron A (Auxiliary)", group=group_synapses)
+wC_B = input.float(-0.5, "Slot C -> Neuron B (Inhibition)", group=group_synapses)
+wC_C = input.float(1.0, "Slot C -> Neuron C (Identity)", group=group_synapses)
+wC_D = input.float(0.1, "Slot C -> Neuron D (Aggregator)", group=group_synapses)
+
+wD_A = input.float(0.1, "Slot D -> Neuron A (Aux)", group=group_synapses)
+wD_B = input.float(0.1, "Slot D -> Neuron B (Aux)", group=group_synapses)
+wD_C = input.float(0.1, "Slot D -> Neuron C (Aux)", group=group_synapses)
+wD_D = input.float(1.0, "Slot D -> Neuron D (Identity)", group=group_synapses)
+
+group_sources = "Input Neurons (Slot Sources)"
+srcA = input.source(close, "Slot A Bias (Sync)", group=group_sources)
+srcB = input.source(close, "Slot B Bias (Sync)", group=group_sources)
+srcC = input.source(close, "Slot C Bias (Sync)", group=group_sources)
+srcD = input.source(close, "Slot D Bias (Sync)", group=group_sources)
+
+group_thresholds = "Neural Gating"
+neural_threshold = input.float(2.0, "Activation Threshold", minval=0.1, group=group_thresholds, tooltip="Aggregate neural consensus strength required to fire.")
+use_regime = input.bool(true, "Enable Regime-Adaptive Synapses", group=group_thresholds)
+
+// =============================================================================
+// NEURAL ENGINE (Synapse Multiplication)
+// =============================================================================
+
+// --- TIER-3 REGIME DETECTION ---
+[di_plus, di_minus, adx_val] = ta.dmi(14, 14)
+choppiness = 100 * math.log10(math.sum(ta.atr(1), 14) / (math.max(high, 14) - math.min(low, 14))) / math.log10(14)
+bool is_trending = adx_val > 25 and choppiness < 50
+bool is_ranging  = adx_val < 20 or choppiness > 60
+int active_regime = is_trending ? 1 : (is_ranging ? 2 : 0)
+
+// Scalers (Regime Adaptive)
+float r_mult_a = (use_regime and active_regime == 2) ? 1.5 : 1.0 // Range: Priority Slot A (Order Flow)
+float r_mult_b = (use_regime and active_regime == 1) ? 1.5 : 1.0 // Trend: Priority Slot B (Momentum/Zones)
+
+// 1. Create the Input Vector [1x4]
+input_vec = matrix.new<float>(1, 4, 0.0)
+matrix.set(input_vec, 0, 0, (srcA > 200.0 ? (math.floor((srcA-200.0)*100+0.5)%10 == 1 ? 1.0 : -1.0) : (srcA > 0 ? 1.0 : -1.0)) * r_mult_a)
+matrix.set(input_vec, 0, 1, (srcB > 200.0 ? (math.floor((srcB-200.0)*100+0.5)%10 == 1 ? 1.0 : -1.0) : (srcB > 0 ? 1.0 : -1.0)) * r_mult_b)
+matrix.set(input_vec, 0, 2, (srcC > 200.0 ? (math.floor((srcC-200.0)*100+0.5)%10 == 1 ? 1.0 : -1.0) : (srcC > 0 ? 1.0 : -1.0)))
+matrix.set(input_vec, 0, 3, (srcD > 200.0 ? (math.floor((srcD-200.0)*100+0.5)%10 == 1 ? 1.0 : -1.0) : (srcD > 0 ? 1.0 : -1.0)))
+
+// 2. Create the matrix matrix [4x4]
+synapse_Synapse = matrix.new<float>(4, 4, 0.0)
+matrix.set(synapse_Synapse, 0, 0, wA_A), matrix.set(synapse_Synapse, 0, 1, wA_B), matrix.set(synapse_Synapse, 0, 2, wA_C), matrix.set(synapse_Synapse, 0, 3, wA_D)
+matrix.set(synapse_Synapse, 1, 0, wB_A), matrix.set(synapse_Synapse, 1, 1, wB_B), matrix.set(synapse_Synapse, 1, 2, wB_C), matrix.set(synapse_Synapse, 1, 3, wB_D)
+matrix.set(synapse_Synapse, 2, 0, wC_A), matrix.set(synapse_Synapse, 2, 1, wC_B), matrix.set(synapse_Synapse, 2, 2, wC_C), matrix.set(synapse_Synapse, 2, 3, wC_D)
+matrix.set(synapse_Synapse, 3, 0, wD_A), matrix.set(synapse_Synapse, 3, 1, wD_B), matrix.set(synapse_Synapse, 3, 2, wD_C), matrix.set(synapse_Synapse, 3, 3, wD_D)
+
+// 3. Forward Propagation: Result = Input * Synapse
+hidden_layer = matrix.mult(input_vec, synapse_Synapse)
+
+// 4. Extract Activation
+float actA = matrix.get(hidden_layer, 0, 0)
+float actB = matrix.get(hidden_layer, 0, 1)
+float actC = matrix.get(hidden_layer, 0, 2)
+float actD = matrix.get(hidden_layer, 0, 3)
+
+// 5. Aggregate Bias (The Final Activation)
+float neural_sum = actA + actB + actC + actD
+float neural_bias = neural_sum >= neural_threshold ? 1.0 : neural_sum <= -neural_threshold ? -1.0 : 0.0
+
+// =============================================================================
+// VISUALIZATION & OUTPUTS
+// =============================================================================
+plot(neural_sum, "Neural Activation Sum", color=neural_sum > 0 ? color.lime : color.red, style=plot.style_columns, histbase=0, transp=70)
+hline(neural_threshold, "Upper Threshold", color=color.gray, linestyle=hline.style_dashed)
+hline(-neural_threshold, "Lower Threshold", color=color.gray, linestyle=hline.style_dashed)
+
+// --- UNIVERSAL AV6 CONNECTOR ---
+plot(neural_bias, "Output: Neural Bias", display=display.none)
+plot(neural_sum, "Output: ML Score", display=display.none)
+
+// Debug Table
+table_pos = input.string(position.top_right, "HUD Position", options=[position.top_right, position.bottom_right, position.top_left, position.bottom_left, position.middle_right, position.middle_left], group="UI Settings")
+var table debugTable = table.new(table_pos, 2, 4, color.new(color.black, 70), color.gray, 1, color.white, 1)
+if barstate.islast
+    table.cell(debugTable, 0, 0, "Slot", text_color=color.white)
+    table.cell(debugTable, 1, 0, "Activation", text_color=color.white)
+    
+    table.cell(debugTable, 0, 1, "Neuron A", text_color=color.white)
+    table.cell(debugTable, 1, 1, str.tostring(actA, "#.##"), text_color=color.lime)
+    
+    table.cell(debugTable, 0, 2, "Neuron B", text_color=color.white)
+    table.cell(debugTable, 1, 2, str.tostring(actB, "#.##"), text_color=color.lime)
+    
+    table.cell(debugTable, 0, 3, "Neuron C + D", text_color=color.white)
+    table.cell(debugTable, 1, 3, str.tostring(actC + actD, "#.##"), text_color=color.lime)

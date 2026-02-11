@@ -1,0 +1,130 @@
+//@version=6
+indicator("Synapse Sub-Hub: Nitro Front-Runner [Slot G]", overlay=false)
+
+// =============================================================================
+// Synapse SUB-HUB: NITRO (Slot G)
+// =============================================================================
+// Purpose: Catch "Big Moves" early by analyzing 5-second velocity.
+// This node acts as the "Lead Scout" for the 15-second Master Hub.
+// =============================================================================
+
+// --- 0. TEMPORAL NORMALIZATION ---
+float chart_seconds = timeframe.in_seconds()
+float ref_seconds   = 5.0 
+float t_scale      = ref_seconds / math.max(1.0, chart_seconds)
+
+f_scale_len(_len) => math.max(2, math.floor(_len * t_scale + 0.5))
+
+// --- 1. NITRO VELOCITY ENGINE (True 5s LTF) ---
+group_nitro  = "1. Nitro Velocity Engine"
+vol_sigma    = input.float(2.0, "Velocity Sensitivity (Sigma)", minval=0.5, step=0.1, group=group_nitro)
+use_accel    = input.bool(true, "Enable Acceleration Detection", group=group_nitro)
+
+// Fetch True LTF Data (5s sub-bars)
+[ltf_o, ltf_h, ltf_l, ltf_c, ltf_v] = request.security_lower_tf(syminfo.tickerid, "5S", [open, high, low, close, volume])
+
+f_nitro_scan(_o, _h, _l, _c, _v, _sigma) =>
+    float _vel = 0.0
+    float _acc = 0.0
+    int _bCount = 0, int _sCount = 0
+    
+    if array.size(_c) >= 2
+        for i = 1 to array.size(_c) - 1
+            float d1 = array.get(_c, i) - array.get(_c, i-1) // 5s velocity
+            float d0 = i >= 2 ? array.get(_c, i-1) - array.get(_c, i-2) : 0.0
+            float a1 = d1 - d0 // 5s acceleration
+            
+            _vel := d1
+            _acc := a1
+            
+            // Detection against ATR (Scaled to 5s)
+            float thresh = (ta.atr(14) / 3.0) * _sigma 
+            
+            if d1 > thresh
+                _bCount += 1
+            else if d1 < -thresh
+                _sCount += 1
+                
+    [_bCount, _sCount, _vel, _acc]
+
+[bBars, sBars, lastVel, lastAcc] = f_nitro_scan(ltf_o, ltf_h, ltf_l, ltf_c, ltf_v, vol_sigma)
+
+// --- 2. WEIGHTED CONVERGENCE ---
+group_weights = "2. Signal Weights"
+w_velocity = input.float(2.0, "Velocity Weight", group=group_weights)
+w_accel    = input.float(1.5, "Acceleration Weight", group=group_weights)
+w_crossover = input.float(1.0, "Micro-Trend Weight", group=group_weights)
+
+// --- BUILT-IN LOGIC ENGINES ---
+// Velocity Logic (LTF Consensus)
+bool velocity_bull = bBars > sBars and bBars >= 1
+bool velocity_bear = sBars > bBars and sBars >= 1
+
+// Acceleration Logic
+float avg_accel = ta.sma(math.abs(lastAcc), 20)
+bool accel_bull = lastAcc > avg_accel * 1.5
+bool accel_bear = lastAcc < -avg_accel * 1.5
+
+// Micro-Trend (Fast HMA alignment)
+float hma_fast = ta.hma(close, f_scale_len(9))
+float hma_slow = ta.hma(close, f_scale_len(21))
+bool trend_bull = hma_fast > hma_slow
+bool trend_bear = hma_fast < hma_slow
+
+// --- CONTEXTUAL BIASED SUM ---
+float bias = 0.0
+float weighted_sum = 0.0
+float total_weight = 0.0
+
+// Apply Velocity (Primary)
+if velocity_bull
+    weighted_sum += w_velocity
+    total_weight += w_velocity
+else if velocity_bear
+    weighted_sum -= w_velocity
+    total_weight += w_velocity
+
+// Apply Acceleration (Speeding up)
+if use_accel
+    if accel_bull
+        weighted_sum += w_accel
+        total_weight += w_accel
+    else if accel_bear
+        weighted_sum -= w_accel
+        total_weight += w_accel
+
+// Apply Trend (Alignment)
+if trend_bull
+    weighted_sum += w_crossover
+    total_weight += w_crossover
+else if trend_bear
+    weighted_sum -= w_crossover
+    total_weight += w_crossover
+
+float consensus = total_weight > 0 ? (weighted_sum / total_weight) : 0.0
+float final_bias = consensus >= 0.5 ? 1.0 : (consensus <= -0.5 ? -1.0 : 0.0)
+
+// Pulse logic for encoding
+// 1.0 = Standard Nitro, 2.0 = High Conviction Nitro
+float pulse = math.abs(consensus) >= 0.8 ? 2.0 : (math.abs(consensus) >= 0.5 ? 1.0 : 0.0)
+
+// --- 🚌 Synapse UNIVERSAL BUS (Outbound) ---
+float p_digit = pulse
+float b_digit = final_bias == 1.0 ? 1.0 : (final_bias == -1.0 ? 2.0 : 0.0)
+
+float Synapse_bus = 200.0 + (p_digit * 0.1) + (b_digit * 0.01)
+plot(Synapse_bus, "Nitro Category Bus Output", display=display.status_line)
+
+// --- VISUALS ---
+plotshape(final_bias > 0, "Nitro Bull", shape.triangleup, location.belowbar, color.new(color.lime, 40), size=size.tiny)
+plotshape(final_bias < 0, "Nitro Bear", shape.triangledown, location.abovebar, color.new(color.red, 40), size=size.tiny)
+
+// --- HUD ---
+var table hud = table.new(position.bottom_right, 2, 4, bgcolor=color.new(color.black, 70))
+if barstate.islast
+    table.cell(hud, 0, 0, "NITRO HUB (5S)", text_color=color.aqua)
+    table.cell(hud, 1, 0, final_bias == 1 ? "BULL" : (final_bias == -1 ? "BEAR" : "WAIT"), text_color=final_bias == 1 ? color.lime : (final_bias == -1 ? color.red : color.gray))
+    table.cell(hud, 0, 1, "5s Velocity", text_color=color.white)
+    table.cell(hud, 1, 1, str.tostring(lastVel, "0.00"), text_color=math.abs(lastVel) > (ta.atr(14)/3.0)*vol_sigma ? color.yellow : color.silver)
+    table.cell(hud, 0, 2, "Consensus", text_color=color.white)
+    table.cell(hud, 1, 2, str.tostring(consensus * 100, "0") + "%", text_color=color.orange)

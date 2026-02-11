@@ -1,0 +1,52 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Antigravity
+
+//@version=6
+indicator("Synapse Execution Pulse [Feedback Bridge]", overlay=true)
+
+// =============================================================================
+// 🧠 INLINED MODULE: DECAYING BAYESIAN WEIGHTING (DBW)
+// =============================================================================
+f_Synapse_dbw(float[] _outcomes, float _decay = 0.85) =>
+    float weightSum = 0.0, float valueSum  = 0.0
+    int size = array.size(_outcomes)
+    if size > 0
+        for i = 0 to size - 1
+            float w = math.pow(_decay, size - i - 1)
+            weightSum += w
+            valueSum  += array.get(_outcomes, i) * w
+    weightSum > 0 ? (valueSum / weightSum) * 100 : 50.0
+
+f_encode_exec_bus(int _resultDigit, int _typeDigit) =>
+    100.0 + (_resultDigit * 0.1) + (_typeDigit * 0.01)
+
+// =============================================================================
+// 🛰️ MASTER SWITCHBOARD
+// =============================================================================
+group_feed = "Feedback Sources"
+srcFeedback = input.source(close, "AV6: Feedback Pulse", group=group_feed, tooltip="Connect to 'Output: Execution Feedback Pulse' from AV6 Lite.")
+srcPosState = input.source(close, "AV6: Position State", group=group_feed, tooltip="Connect to 'simPosSize' or 'Bias' from AV6 Lite.")
+
+// Capture State
+bool changed = ta.change(srcFeedback) != 0
+bool isWin  = changed and srcFeedback > 0
+bool isLoss = changed and srcFeedback < 0
+bool inTrade = srcPosState != 0
+
+// Determine Result Digit
+// 1: Win, 2: Loss, 3: Break-even
+int resDigit = isWin ? 1 : isLoss ? 2 : (changed ? 3 : 0)
+
+// Determine Type Digit
+// 1: Entry, 2: Exit, 3: Partial
+int typeDigit = (srcPosState != 0 and srcPosState[1] == 0) ? 1 : (srcPosState == 0 and srcPosState[1] != 0) ? 2 : 0
+
+// ➰ ENCODE EXECUTION BUS (100.BROTEP)
+float exec_bus = f_encode_exec_bus(resDigit, typeDigit)
+
+// Visual Feedback
+plotshape(resDigit == 1, "Win Pulse", shape.triangleup, location.belowbar, color.lime, size=size.small)
+plotshape(resDigit == 2, "Loss Pulse", shape.triangledown, location.abovebar, color.red, size=size.small)
+
+// Bus Output for Hub
+plot(exec_bus, "Output: Universal Execution Bus", display = display.status_line + display.data_window)

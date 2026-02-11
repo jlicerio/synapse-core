@@ -1,0 +1,172 @@
+//@version=6
+indicator("Synapse Sub-Hub: Micro-Zone [Slot B]", overlay=true, max_bars_back = 5000)
+
+// =============================================================================
+// Synapse SUB-HUB: MICRO-ZONE [SLOT B] (Revitalized Bank A)
+// =============================================================================
+// Replaces the legacy "Zone Brain" (15m Macro Levels).
+// Focuses on 5s HIGH-VOLUME NODES (HVN) and LIQUIDITY CLUSTERS.
+// Functions as a "Magnet Detector" for immediate price action.
+// =============================================================================
+
+// --- 1. CONFIGURATION ---
+group_hvn = "1. HVN Cluster Settings"
+lookback_bars = input.int(100, "Rolling Window (Bars)", minval=50, group=group_hvn)
+price_step    = input.float(0.25, "Cluster Step (Ticks)", minval=0.1, group=group_hvn)
+min_vol_node  = input.int(50, "Min Volume per Node", minval=10, group=group_hvn)
+
+group_magnet = "2. Magnet Logic"
+magnet_dist   = input.int(10, "Magnet Reach (Ticks)", minval=2, group=group_magnet, tooltip="Distance to verify 'Pull'.")
+rejection_req = input.int(5, "Rejection Wick (Ticks)", minval=1, group=group_magnet)
+
+group_learn = "3. Bayesian Learning"
+win_size    = input.int(10, "Efficacy Window", minval=5, group=group_learn)
+
+// --- 2. HVN CLUSTER ENGINE ---
+// We need to track volume at price levels over the last N bars.
+// Since Pine arrays are 1D, we map Price -> Index.
+// Anchor Price = round(close / step) * step
+
+var float[] vol_map = array.new_float(1000, 0.0) // Fixed size buffer for local area
+var float map_center = 0.0
+
+// Recenter Map Logic
+if map_center == 0.0 or math.abs(close - map_center) > 20.0
+    map_center := close
+    array.fill(vol_map, 0.0) // Reset on shift (Simplified Rolling)
+
+// Update Volume Map
+int idx = 500 + math.round((close - map_center) / price_step)
+if idx >= 0 and idx < 1000
+    float curr_v = array.get(vol_map, idx)
+    array.set(vol_map, idx, curr_v + volume)
+
+// Decay Logic (Rolling Effect)
+// Instead of strict queue, we decay the map by 1% per bar to keep it "Current"
+if barstate.isconfirmed
+    for i = 0 to 999
+        v = array.get(vol_map, i)
+        if v > 0
+            array.set(vol_map, i, v * 0.98) // 2% Decay per bar
+
+// --- 3. CLUSTER DETECTION ---
+// Find nearest HVN above and below
+float hvn_above = na
+float hvn_below = na
+float max_v_up = 0.0
+float max_v_dn = 0.0
+
+// Scan Up
+for i = 1 to 20 // Look 20 steps up (approx 5 pts)
+    check_idx = idx + i
+    if check_idx < 1000
+        v = array.get(vol_map, check_idx)
+        if v > min_vol_node and v > max_v_up
+            max_v_up := v
+            hvn_above := map_center + (check_idx - 500) * price_step
+
+// Scan Down
+for i = 1 to 20 // Look 20 steps down
+    check_idx = idx - i
+    if check_idx >= 0
+        v = array.get(vol_map, check_idx)
+        if v > min_vol_node and v > max_v_dn
+            max_v_dn := v
+            hvn_below := map_center + (check_idx - 500) * price_step
+
+// --- 4. MAGNET & REJECTION LOGIC ---
+// If price is within 'magnet_dist' of an HVN, is it pulling or rejecting?
+
+float dist_up = na(hvn_above) ? 999.0 : (hvn_above - close) / syminfo.mintick
+float dist_dn = na(hvn_below) ? 999.0 : (close - hvn_below) / syminfo.mintick
+
+// Bias Generation
+float final_bias = 0.0
+float pulse_strength = 0.0
+
+// Magnet Pull (Vacuum)
+if dist_up < magnet_dist and close > open // Moving UP towards HVN
+    final_bias := 1.0
+    pulse_strength := 1.0 // Magnet Pull
+
+if dist_dn < magnet_dist and close < open // Moving DOWN towards HVN
+    final_bias := -1.0
+    pulse_strength := 1.0 // Magnet Pull
+
+// Rejection (Bounce)
+bool wick_rej_top = high - math.max(open, close) > rejection_req * syminfo.mintick
+bool wick_rej_bot = math.min(open, close) - low > rejection_req * syminfo.mintick
+
+if not na(hvn_above) and high >= hvn_above and wick_rej_top // Hit Upper HVN and Rejected
+    final_bias := -1.0
+    pulse_strength := 2.0 // Hard Rejection
+
+if not na(hvn_below) and low <= hvn_below and wick_rej_bot // Hit Lower HVN and Rejected
+    final_bias := 1.0
+    pulse_strength := 2.0 // Hard Rejection
+
+// --- 5. VISUALIZATION ---
+plot(hvn_above, "HVN Above", color=color.new(color.red, 50), style=plot.style_circles, linewidth=2)
+plot(hvn_below, "HVN Below", color=color.new(color.lime, 50), style=plot.style_circles, linewidth=2)
+
+// --- 6. AUDIT ENGINE (Bayesian) ---
+type NodeState
+    float entryPrice = na
+    int   direction  = 0
+    float[] outcomes
+
+f_audit_node(_bias, _state, _tp_mult) =>
+    float _atr = ta.atr(14)
+    if not na(_state.entryPrice)
+        float dist = _state.direction == 1 ? high - _state.entryPrice : _state.entryPrice - low
+        float sl_dist = _state.direction == 1 ? _state.entryPrice - low : high - _state.entryPrice
+        
+        bool hitTP = dist >= _atr * _tp_mult
+        bool hitSL = sl_dist >= _atr * 1.0
+        
+        if hitTP or hitSL
+            array.push(_state.outcomes, hitTP ? 1.0 : 0.0)
+            if array.size(_state.outcomes) > win_size
+                array.shift(_state.outcomes)
+            _state.entryPrice := na
+            
+    if _bias != 0 and na(_state.entryPrice)
+        _state.entryPrice := close
+        _state.direction := _bias > 0 ? 1 : -1
+        
+    array.size(_state.outcomes) > 0 ? array.avg(_state.outcomes) * 100 : 50.0
+
+var s_node = NodeState.new(na, 0, array.new_float(0))
+float win_rate = f_audit_node(final_bias, s_node, 1.5)
+
+// --- 7. Axon-Link v3.0 ENCODING ---
+// Protocol: 200.PBCCC
+float bus_proto = 200.0
+float p_digit = pulse_strength
+float b_digit = final_bias == 1.0 ? 1.0 : (final_bias == -1.0 ? 2.0 : 0.0)
+float c_val   = math.floor(win_rate * 10 + 0.5) 
+
+float Synapse_bus = bus_proto + (p_digit * 0.1) + (b_digit * 0.01) + (c_val / 100000.0)
+plot(Synapse_bus, "Micro-Zone Bus Output", display=display.status_line)
+
+// --- DASHBOARD ---
+var table hud = table.new(position.top_right, 3, 6, bgcolor=color.new(color.black, 40), border_width=1)
+if barstate.islast
+    table.cell(hud, 0, 0, "MICRO-ZONE HUB", text_color=color.aqua)
+    table.cell(hud, 1, 0, "DIST", text_color=color.silver, text_size=size.small)
+    table.cell(hud, 2, 0, "VOL", text_color=color.silver, text_size=size.small)
+
+    table.cell(hud, 0, 1, "Nearest Res", text_color=color.red, text_halign=text.align_left)
+    table.cell(hud, 1, 1, na(hvn_above) ? "-" : str.tostring(dist_up, "#") + "t", text_color=color.white)
+    table.cell(hud, 2, 1, str.tostring(max_v_up, "#"), text_color=color.red)
+
+    table.cell(hud, 0, 2, "Nearest Sup", text_color=color.lime, text_halign=text.align_left)
+    table.cell(hud, 1, 2, na(hvn_below) ? "-" : str.tostring(dist_dn, "#") + "t", text_color=color.white)
+    table.cell(hud, 2, 2, str.tostring(max_v_dn, "#"), text_color=color.lime)
+
+    table.cell(hud, 0, 3, "Magnet Status", text_color=color.white, text_halign=text.align_left)
+    table.cell(hud, 1, 3, pulse_strength == 1.0 ? "PULLING" : (pulse_strength == 2.0 ? "REJECT" : "NEUTRAL"), text_color=pulse_strength == 1.0 ? color.yellow : (pulse_strength == 2.0 ? color.fuchsia : color.gray))
+    table.cell(hud, 2, 3, final_bias == 1 ? "UP" : (final_bias == -1 ? "DOWN" : "-"), text_color=final_bias != 0 ? color.white : color.gray)
+
+    table.cell(hud, 0, 4, "FINAL OUT", text_color=color.aqua)
+    table.cell(hud, 1, 4, str.tostring(Synapse_bus, "#.####"), text_color=color.gray, text_size=size.tiny)
